@@ -1,0 +1,29 @@
+{
+  "description": "Golden fixture: Training notebook for Kaggle P100",
+  "template": "training",
+  "platform": "kaggle-p100",
+  "tools": [],
+  "expectedStructure": {
+    "minCells": 10,
+    "hasConfig": true,
+    "hasDataLoading": true,
+    "hasTrainingLoop": true,
+    "hasCheckpointSave": true
+  },
+  "expectedPatterns": {
+    "platformPaths": ["/kaggle/input", "/kaggle/working"],
+    "configKeys": ["model_name", "batch_size", "num_epochs", "learning_rate"],
+    "imports": ["transformers", "datasets", "torch"]
+  },
+  "mustNotContain": [
+    "{{",
+    "your-bucket",
+    "your-project",
+    "TODO",
+    "REPLACE_ME"
+  ],
+  "validation": {
+    "expectedScore": 100,
+    "allowedWarnings": ["MISSING_KERNELSPEC", "EMPTY_CODE_CELL"]
+  }
+}

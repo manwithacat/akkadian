@@ -1,0 +1,29 @@
+{
+  "description": "Golden fixture: Training notebook for Colab Pro",
+  "template": "training",
+  "platform": "colab-pro",
+  "tools": [],
+  "expectedStructure": {
+    "minCells": 10,
+    "hasConfig": true,
+    "hasDataLoading": true,
+    "hasTrainingLoop": true,
+    "hasGCSSetup": true
+  },
+  "expectedPatterns": {
+    "platformPaths": ["/content", "gs://"],
+    "configKeys": ["model_name", "batch_size", "num_epochs", "learning_rate"],
+    "imports": ["transformers", "datasets", "torch"],
+    "colabSpecific": ["google.colab", "auth.authenticate_user"]
+  },
+  "mustNotContain": [
+    "{{",
+    "/kaggle/",
+    "TODO",
+    "REPLACE_ME"
+  ],
+  "validation": {
+    "expectedScore": 100,
+    "allowedWarnings": ["MISSING_KERNELSPEC", "PLACEHOLDER_VALUE"]
+  }
+}

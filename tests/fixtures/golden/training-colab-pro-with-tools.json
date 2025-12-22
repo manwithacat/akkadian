@@ -1,0 +1,48 @@
+{
+  "description": "Golden fixture: Training notebook for Colab Pro with ML tools",
+  "template": "training",
+  "platform": "colab-pro",
+  "tools": ["sacrebleu", "qlora", "hpo"],
+  "expectedStructure": {
+    "minCells": 15,
+    "hasConfig": true,
+    "hasDataLoading": true,
+    "hasTrainingLoop": true,
+    "hasGCSSetup": true,
+    "hasToolDependencies": true
+  },
+  "expectedPatterns": {
+    "platformPaths": ["/content", "gs://"],
+    "configKeys": ["model_name", "batch_size", "num_epochs", "learning_rate"],
+    "imports": ["transformers", "datasets", "torch"],
+    "toolImports": {
+      "sacrebleu": ["sacrebleu", "BLEU", "CHRF"],
+      "qlora": ["BitsAndBytesConfig", "LoraConfig", "peft"],
+      "hpo": ["optuna", "MLflowCallback"]
+    }
+  },
+  "expectedToolCells": {
+    "sacrebleu": {
+      "hasEvaluateFunction": true,
+      "hasVersionSignature": true
+    },
+    "qlora": {
+      "hasBnBConfig": true,
+      "hasLoraConfig": true,
+      "hasMergeFunction": true
+    },
+    "hpo": {
+      "hasOptunaStudy": true,
+      "hasMLflowIntegration": true
+    }
+  },
+  "mustNotContain": [
+    "{{",
+    "TODO",
+    "REPLACE_ME"
+  ],
+  "validation": {
+    "expectedScore": 100,
+    "allowedWarnings": ["MISSING_KERNELSPEC", "PLACEHOLDER_VALUE"]
+  }
+}
