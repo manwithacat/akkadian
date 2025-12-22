@@ -1,0 +1,28 @@
+{
+  "name": "@akkadian/cli",
+  "version": "0.1.0",
+  "description": "Akkadian ML CLI - Kaggle, Colab, and MLFlow integration",
+  "module": "src/index.ts",
+  "type": "module",
+  "bin": {
+    "akk": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile=dist/akk",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "ink": "^5.1.0",
+    "picocolors": "^1.1.1",
+    "react": "^18.3.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^18.3.0",
+    "typescript": "^5.7.0"
+  }
+}
