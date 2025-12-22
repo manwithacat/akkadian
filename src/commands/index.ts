@@ -20,7 +20,10 @@ export { train, prepare, importRun, listRuns } from './workflow'
 export { submit as vertexSubmit, status as vertexStatus, list as vertexList } from './vertex'
 
 // Preflight commands
-export { preflight, platforms as preflightPlatforms } from './preflight'
+export { preflight, platforms as preflightPlatforms, validate as preflightValidate } from './preflight'
 
 // Competition commands
 export { competitionInit, competitionStatus } from './competition'
+
+// Template commands
+export { templateGenerate, templateList } from './template'

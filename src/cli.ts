@@ -37,8 +37,11 @@ import {
   vertexList,
   preflight,
   preflightPlatforms,
+  preflightValidate,
   competitionInit,
   competitionStatus,
+  templateGenerate,
+  templateList,
 } from './commands'
 
 // Command registry
@@ -78,9 +81,13 @@ const commands: Record<string, Command> = {
   // Preflight commands
   'preflight check': preflight,
   'preflight platforms': preflightPlatforms,
+  'preflight validate': preflightValidate,
   // Competition commands
   'competition init': competitionInit,
   'competition status': competitionStatus,
+  // Template commands
+  'template generate': templateGenerate,
+  'template list': templateList,
 }
 
 // Global options schema
@@ -147,7 +154,7 @@ function parseArgs(argv: string[]): {
       if (!subcommand && !arg.startsWith('-')) {
         // Check if this could be a subcommand
         const potentialCmd = `${command} ${arg}`
-        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition'].includes(command)) {
+        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition', 'template'].includes(command)) {
           subcommand = arg
           i++
           continue
@@ -256,10 +263,14 @@ Commands:
   vertex list                  List Vertex AI jobs
 
   preflight check              Check notebook resource requirements
+  preflight validate           Validate notebook structure and readiness
   preflight platforms          List available platform profiles
 
   competition init             Initialize competition directory
   competition status           Show competition status
+
+  template list                List available templates and platforms
+  template generate            Generate notebook from template
 
 Global Options:
   --help, -h     Show help
