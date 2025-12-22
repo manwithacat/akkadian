@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import type { PlatformId, PlatformPaths } from './platform'
 import type { CompetitionConfig, GCSConfig, TrainingDefaults } from './competition'
+import type { ToolId, ToolConfig } from './tools'
 
 /**
  * Template variable types
@@ -62,11 +63,42 @@ export interface TemplateMetadata {
  */
 export interface TemplateContext {
   platform: PlatformId
-  competition?: CompetitionConfig
-  training?: TrainingDefaults
-  gcs?: GCSConfig
-  variables: Record<string, unknown>
-  paths: PlatformPaths
+  competition?: {
+    competition: CompetitionConfig['competition']
+  }
+  model?: {
+    name: string
+    base?: string
+  }
+  training?: {
+    epochs?: number
+    batch_size?: number
+    learning_rate?: number
+    gradient_accumulation_steps?: number
+    max_src_len?: number
+    max_tgt_len?: number
+    warmup_ratio?: number
+    weight_decay?: number
+    fp16?: boolean
+    save_steps?: number
+    eval_steps?: number
+    logging_steps?: number
+    save_total_limit?: number
+  }
+  languages?: {
+    src?: string
+    tgt?: string
+  }
+  gcs?: {
+    bucket?: string
+    project?: string
+    cross_account?: boolean
+  }
+  tools?: {
+    enabled: ToolId[]
+    config?: ToolConfig
+  }
+  variables?: Record<string, unknown>
 }
 
 /**
@@ -105,10 +137,10 @@ export interface NotebookContent {
  * Template rendering result
  */
 export interface TemplateRenderResult {
-  content: string
-  notebook?: NotebookContent
-  metadata: TemplateMetadata
-  injections: Record<string, string>
+  script: string
+  notebook: NotebookContent
+  paths: PlatformPaths
+  metadata?: Record<string, unknown>
   warnings: string[]
 }
 
