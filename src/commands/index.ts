@@ -33,3 +33,6 @@ export { mcpServe } from './mcp'
 
 // Data management commands
 export { download as dataDownload, list as dataList, register as dataRegister, explore as dataExplore, wrangler as dataWrangler } from './data'
+
+// Notebook commands
+export { notebookBuild } from './notebook'

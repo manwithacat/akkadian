@@ -26,8 +26,9 @@ export const akkadianDK: DomainKnowledge = {
       'akk colab download-artifacts --run <name> - Download results',
       'akk template generate training --platform kaggle - Generate notebook',
       'akk template list - List templates and platforms',
-      'akk preflight check <notebook> --platform kaggle-p100 - Validate notebook',
+      'akk preflight check <notebook> --platform kaggle-p100 - Validate resources',
       'akk preflight validate <notebook> - Full validation suite',
+      'akk notebook build <config.toml> - Generate notebook from TOML config',
       'akk mlflow start - Start tracking server',
       'akk local infer --model <path> --interactive - Test translations',
       'akk competition init <slug> - Initialize competition directory',
@@ -137,6 +138,21 @@ export const akkadianDK: DomainKnowledge = {
       },
       examples: [
         'akk preflight validate train.py --platform kaggle-p100',
+      ],
+    },
+    'notebook build': {
+      name: 'notebook build',
+      description: 'Generate notebook deterministically from TOML config file',
+      usage: 'akk notebook build <config.toml> [options]',
+      options: {
+        '--output': 'Output file path (default: derived from config name)',
+        '--dry-run': 'Preview what would be generated without writing',
+        '--skip-preflight': 'Skip automatic preflight validation',
+      },
+      examples: [
+        'akk notebook build training.toml',
+        'akk notebook build training.toml -o train.py',
+        'akk notebook build training.toml --dry-run',
       ],
     },
     'colab status': {
@@ -331,6 +347,26 @@ export const akkadianDK: DomainKnowledge = {
         'akk data list --mlflow - View all datasets with MLflow links',
       ],
     },
+    {
+      id: 'transformers-deprecations',
+      name: 'Fix Transformers Deprecations',
+      problem: 'Training fails with TypeError on evaluation_strategy or as_target_tokenizer',
+      solution: 'Use modern API: eval_strategy instead of evaluation_strategy, tokenizer(text, text_target=target) instead of as_target_tokenizer()',
+      commands: [
+        'akk preflight check train.py - Detects deprecated APIs',
+        'akk notebook build training.toml - Generates notebooks with modern APIs',
+      ],
+    },
+    {
+      id: 'disk-space-kaggle',
+      name: 'Fix Kaggle Disk Space Errors',
+      problem: 'Notebook fails with "disk space exceeded" on Kaggle',
+      solution: 'Kaggle has ~10GB effective disk. Checkpoints are fp32 (2x model size). Set save_total_limit=1, clear HF cache after model load.',
+      commands: [
+        'akk preflight check train.py --platform kaggle-p100 --verbose - Check peak disk usage',
+        'akk notebook build training.toml - Auto-configures disk optimizations',
+      ],
+    },
   ],
 
   errors: [
@@ -339,6 +375,24 @@ export const akkadianDK: DomainKnowledge = {
       message: 'CUDA out of memory',
       cause: 'Model + batch too large for GPU VRAM',
       fix: 'Reduce batch_size, use gradient_accumulation_steps, enable fp16',
+    },
+    {
+      code: 'DISK_SPACE',
+      message: 'Your notebook tried to use more disk space than is available',
+      cause: 'Kaggle has ~10GB effective disk. Checkpoints are fp32 (2x model size). Multiple checkpoints during rotation.',
+      fix: 'Set save_total_limit=1, clear HF cache after model load, use akk notebook build for auto-optimization',
+    },
+    {
+      code: 'EVALUATION_STRATEGY',
+      message: 'TypeError: Seq2SeqTrainingArguments.__init__() got an unexpected keyword argument evaluation_strategy',
+      cause: 'evaluation_strategy is deprecated in transformers>=4.46',
+      fix: 'Use eval_strategy instead. Run akk preflight check to detect, or use akk notebook build for modern APIs.',
+    },
+    {
+      code: 'AS_TARGET_TOKENIZER',
+      message: 'as_target_tokenizer() is deprecated',
+      cause: 'Old tokenization API deprecated in transformers>=4.40',
+      fix: 'Use tokenizer(text, text_target=target) instead',
     },
     {
       code: 'QUOTA_EXCEEDED',
@@ -388,13 +442,15 @@ export const akkadianDK: DomainKnowledge = {
       limits: {
         gpu_memory: '16 GB',
         ram: '13 GB',
-        disk: '20 GB',
+        disk: '10 GB effective (HF cache + /kaggle/working share partition)',
         runtime: '9 hours',
       },
       tips: [
-        'Use batch_size=2 with gradient_accumulation_steps=4 for 600M models',
+        'Use batch_size=2 with gradient_accumulation_steps=8 for 600M models',
         'Enable fp16 for memory efficiency',
-        'Save checkpoints to /kaggle/working for persistence',
+        'Set save_total_limit=1 to minimize disk usage',
+        'Clear HF cache after model load to free ~3GB',
+        'Checkpoints save in fp32 (2x model size) - budget accordingly',
       ],
     },
     'kaggle-t4x2': {
@@ -402,12 +458,13 @@ export const akkadianDK: DomainKnowledge = {
       limits: {
         gpu_memory: '15 GB x2',
         ram: '13 GB',
-        disk: '20 GB',
+        disk: '10 GB effective',
         runtime: '9 hours',
       },
       tips: [
         'Use accelerate for multi-GPU training',
         'Effective batch size doubles with 2 GPUs',
+        'Set save_total_limit=1 to minimize disk usage',
       ],
     },
     'colab-pro': {

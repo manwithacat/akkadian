@@ -52,6 +52,7 @@ import {
   dataRegister,
   dataExplore,
   dataWrangler,
+  notebookBuild,
 } from './commands'
 
 // Command registry
@@ -110,6 +111,8 @@ const commands: Record<string, Command> = {
   'data register': dataRegister,
   'data explore': dataExplore,
   'data wrangler': dataWrangler,
+  // Notebook commands
+  'notebook build': notebookBuild,
 }
 
 // Global options schema
@@ -176,7 +179,7 @@ function parseArgs(argv: string[]): {
       if (!subcommand && !arg.startsWith('-')) {
         // Check if this could be a subcommand
         const potentialCmd = `${command} ${arg}`
-        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition', 'template', 'mcp', 'data'].includes(command)) {
+        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition', 'template', 'mcp', 'data', 'notebook'].includes(command)) {
           subcommand = arg
           i++
           continue
@@ -305,6 +308,8 @@ Commands:
   data register                Register dataset with lineage tracking
   data explore                 Launch Datasette to explore datasets
   data wrangler                Launch Marimo for rich dataframe exploration
+
+  notebook build               Generate notebook from TOML config
 
 Global Options:
   --help, -h     Show help

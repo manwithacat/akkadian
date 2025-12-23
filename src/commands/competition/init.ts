@@ -31,12 +31,12 @@ Initialize a new competition directory with:
 If run without arguments, uses interactive prompts to gather information.
 If run in a directory with an existing competition.toml, use --force to overwrite.
 
-The competition slug should match the Kaggle competition ID (e.g., "babylonian-engine-efficiency-challenge").
+The competition slug should match the Kaggle competition ID (e.g., "deep-past-initiative-machine-translation").
 `,
   examples: [
     'akk competition init',
     'akk competition init ./my-competition',
-    'akk competition init --slug babylonian-engine-efficiency-challenge --username myuser',
+    'akk competition init --slug deep-past-initiative-machine-translation --username myuser',
     'akk competition init --force',
   ],
   args: InitArgs,

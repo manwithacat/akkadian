@@ -1,0 +1,395 @@
+# ---
+# jupyter:
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+#   kaggle:
+#     accelerator: gpu
+#     dataSources:
+# {{#each data.sources}}
+#       - type: {{this.type}}
+#         name: {{this.name}}
+# {{/each}}
+#     docker_image: gcr.io/kaggle-gpu-images/python
+#     isGpuEnabled: true
+#     isInternetEnabled: {{platform.internet_enabled}}
+#     language: python
+#     sourceType: script
+# ---
+
+# %% [markdown]
+# # {{meta.name}}
+#
+# {{meta.description}}
+#
+# **Generated from**: `{{_source_config}}`
+# **Template**: `{{meta.template}}`
+# **Version**: {{meta.version}}
+
+# %%
+import os
+import sys
+import time
+import json
+import glob
+import subprocess
+import shutil
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+import torch
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+
+print(f"Python: {sys.version}")
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+
+# %% [markdown]
+# ## Install Dependencies
+
+# %%
+packages = ["sentencepiece", "sacrebleu", "evaluate"]
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps"] + packages, check=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "transformers>=4.35.0", "accelerate"], check=True)
+print("Packages installed")
+
+# %%
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSeq2SeqLM,
+    Seq2SeqTrainer,
+    Seq2SeqTrainingArguments,
+    DataCollatorForSeq2Seq,
+    EarlyStoppingCallback,
+)
+import evaluate
+
+# %% [markdown]
+# ## Configuration
+#
+# Generated from training.toml - DO NOT EDIT MANUALLY
+
+# %%
+# === AUTO-GENERATED CONFIG ===
+# Source: {{_source_config}}
+# Generated: {{_generated_at}}
+
+CONFIG = {
+    # Model
+    "model_name": "{{model.name}}",
+
+    # Language codes
+    "src_lang": "{{model.src_lang}}",
+    "tgt_lang": "{{model.tgt_lang}}",
+
+    # Training
+    "num_epochs": {{training.num_epochs}},
+    "batch_size": {{training.batch_size}},
+    "gradient_accumulation_steps": {{training.gradient_accumulation_steps}},
+    "learning_rate": {{training.learning_rate}},
+    "weight_decay": {{training.weight_decay}},
+    "warmup_ratio": {{training.warmup_ratio}},
+
+    # Sequence lengths
+    "max_src_len": {{data.preprocessing.max_src_len}},
+    "max_tgt_len": {{data.preprocessing.max_tgt_len}},
+
+    # Evaluation
+    "eval_steps": {{evaluation.eval_steps}},
+    "save_steps": {{evaluation.save_steps}},
+    "logging_steps": {{evaluation.logging_steps}},
+
+    # Optimization
+    "fp16": {{model.precision.mixed_precision}},
+    "predict_with_generate": {{evaluation.predict_with_generate}},
+    "metric_for_best_model": "{{evaluation.metric}}",
+    "greater_is_better": {{evaluation.greater_is_better}},
+
+    # Checkpoints
+    "save_total_limit": {{checkpoints.save_total_limit}},
+    "load_best_at_end": {{checkpoints.load_best_at_end}},
+
+    # Early stopping
+    "early_stopping_patience": {{evaluation.early_stopping.patience}},
+    "early_stopping_enabled": {{evaluation.early_stopping.enabled}},
+
+    # Validation split
+    "val_split": {{data.val_split}},
+    "seed": {{data.seed}},
+
+    # Generation
+    "num_beams": {{generation.num_beams}},
+    "max_new_tokens": {{generation.max_new_tokens}},
+    "repetition_penalty": {{generation.repetition_penalty}},
+    "no_repeat_ngram_size": {{generation.no_repeat_ngram_size}},
+
+    # Platform
+    "clear_hf_cache": {{platform.clear_hf_cache}},
+
+    # Output
+    "output_dir": "{{output.dir}}",
+}
+
+print("Configuration:")
+for k, v in CONFIG.items():
+    print(f"  {k}: {v}")
+
+# %% [markdown]
+# ## Load Dataset
+
+# %%
+# Dataset sources (in priority order)
+DATASET_SOURCES = [
+{{#each data.sources}}
+    "{{this.path}}",
+{{/each}}
+]
+
+train_df = None
+dataset_type = None
+
+for source in DATASET_SOURCES:
+    files = glob.glob(source, recursive=True)
+    if files:
+        print(f"Using dataset: {files[0]}")
+        train_df = pd.read_csv(files[0])
+        dataset_type = source.split("/")[-1].replace("*.csv", "").strip("/")
+        break
+
+if train_df is None:
+    raise RuntimeError(f"No training data found! Searched: {DATASET_SOURCES}")
+
+print(f"\nTraining samples: {len(train_df)}")
+print(f"Columns: {train_df.columns.tolist()}")
+
+# %%
+# Data quality check
+print(f"\nData quality:")
+print(f"  Null sources: {train_df['{{data.source_column}}'].isna().sum()}")
+print(f"  Null targets: {train_df['{{data.target_column}}'].isna().sum()}")
+print(f"  Avg source length: {train_df['{{data.source_column}}'].str.len().mean():.1f} chars")
+print(f"  Avg target length: {train_df['{{data.target_column}}'].str.len().mean():.1f} chars")
+
+train_df = train_df.dropna(subset=['{{data.source_column}}', '{{data.target_column}}'])
+print(f"  After cleaning: {len(train_df)} samples")
+
+# %% [markdown]
+# ## Initialize Model
+
+# %%
+print(f"\nLoading model: {CONFIG['model_name']}")
+start = time.time()
+
+tokenizer = AutoTokenizer.from_pretrained(CONFIG["model_name"])
+model = AutoModelForSeq2SeqLM.from_pretrained(CONFIG["model_name"])
+
+print(f"Model loaded in {time.time()-start:.1f}s")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+# %%
+# Clear HuggingFace cache to save disk space
+if CONFIG["clear_hf_cache"]:
+    hf_cache = os.path.expanduser("~/.cache/huggingface")
+    if os.path.exists(hf_cache):
+        cache_size = sum(os.path.getsize(os.path.join(dp, f)) for dp, dn, fn in os.walk(hf_cache) for f in fn)
+        print(f"Clearing HF cache: {cache_size / 1e9:.2f} GB")
+        shutil.rmtree(hf_cache, ignore_errors=True)
+        print("HF cache cleared to save disk space")
+
+# %%
+tokenizer.src_lang = CONFIG["src_lang"]
+tokenizer.tgt_lang = CONFIG["tgt_lang"]
+
+eng_token_id = tokenizer.convert_tokens_to_ids(CONFIG["tgt_lang"])
+print(f"Target language token ID: {eng_token_id}")
+
+# %% [markdown]
+# ## Preprocessing
+
+# %%
+def preprocess_function(examples):
+    inputs = examples["{{data.source_column}}"]
+    targets = examples["{{data.target_column}}"]
+
+    model_inputs = tokenizer(
+        inputs,
+        text_target=targets,
+        max_length=CONFIG["max_src_len"],
+        truncation=True,
+        padding=False,
+    )
+
+    return model_inputs
+
+# %%
+print("\nPreparing datasets...")
+
+dataset = Dataset.from_pandas(train_df[["{{data.source_column}}", "{{data.target_column}}"]])
+split = dataset.train_test_split(test_size=CONFIG["val_split"], seed=CONFIG["seed"])
+train_dataset = split["train"]
+val_dataset = split["test"]
+
+print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}")
+
+# %%
+train_tokenized = train_dataset.map(preprocess_function, batched=True, remove_columns=train_dataset.column_names)
+val_tokenized = val_dataset.map(preprocess_function, batched=True, remove_columns=val_dataset.column_names)
+
+print(f"Tokenized - Train: {len(train_tokenized)}, Val: {len(val_tokenized)}")
+
+# %% [markdown]
+# ## Training Setup
+
+# %%
+data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model, padding=True)
+
+training_args = Seq2SeqTrainingArguments(
+    output_dir=CONFIG["output_dir"],
+    num_train_epochs=CONFIG["num_epochs"],
+    per_device_train_batch_size=CONFIG["batch_size"],
+    per_device_eval_batch_size=CONFIG["batch_size"],
+    gradient_accumulation_steps=CONFIG["gradient_accumulation_steps"],
+    learning_rate=CONFIG["learning_rate"],
+    weight_decay=CONFIG["weight_decay"],
+    warmup_ratio=CONFIG["warmup_ratio"],
+    fp16=CONFIG["fp16"],
+    eval_strategy="steps",
+    eval_steps=CONFIG["eval_steps"],
+    save_strategy="steps",
+    save_steps=CONFIG["save_steps"],
+    save_total_limit=CONFIG["save_total_limit"],
+    logging_steps=CONFIG["logging_steps"],
+    load_best_model_at_end=CONFIG["load_best_at_end"],
+    metric_for_best_model=CONFIG["metric_for_best_model"],
+    greater_is_better=CONFIG["greater_is_better"],
+    predict_with_generate=CONFIG["predict_with_generate"],
+    report_to="none",
+    seed=CONFIG["seed"],
+)
+
+callbacks = []
+if CONFIG["early_stopping_enabled"]:
+    callbacks.append(EarlyStoppingCallback(early_stopping_patience=CONFIG["early_stopping_patience"]))
+
+trainer = Seq2SeqTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_tokenized,
+    eval_dataset=val_tokenized,
+    tokenizer=tokenizer,
+    data_collator=data_collator,
+    callbacks=callbacks,
+)
+
+# %% [markdown]
+# ## Train
+
+# %%
+print("\n" + "="*60)
+print("STARTING TRAINING")
+print(f"Dataset: {dataset_type} ({len(train_tokenized)} samples)")
+print(f"Config: {{meta.name}} v{{meta.version}}")
+print("="*60 + "\n")
+
+train_start = time.time()
+train_result = trainer.train()
+train_time = time.time() - train_start
+
+print(f"\nTraining completed in {train_time/60:.1f} minutes")
+print(f"Final metrics: {train_result.metrics}")
+
+# %% [markdown]
+# ## Save Model
+
+# %%
+output_dir = CONFIG["output_dir"]
+trainer.save_model(output_dir)
+tokenizer.save_pretrained(output_dir)
+
+# Save training config
+config_path = os.path.join(output_dir, "training_config.json")
+with open(config_path, "w") as f:
+    json.dump({
+        **CONFIG,
+        "dataset_type": dataset_type,
+        "train_samples": len(train_tokenized),
+        "val_samples": len(val_tokenized),
+        "train_time_minutes": train_time / 60,
+        "final_loss": train_result.metrics.get("train_loss"),
+        "meta": {
+            "name": "{{meta.name}}",
+            "version": "{{meta.version}}",
+            "generated_from": "{{_source_config}}",
+        },
+    }, f, indent=2)
+
+# Save length config for inference
+length_config = {
+    "length_ratio": 1.5,
+    "length_slack": 20,
+    "global_max": 512,
+    "global_min": 32,
+}
+with open(os.path.join(output_dir, "length_config.json"), "w") as f:
+    json.dump(length_config, f)
+
+print(f"\nModel saved to: {output_dir}")
+print(f"Files: {os.listdir(output_dir)}")
+
+# %% [markdown]
+# ## Quick Evaluation
+
+# %%
+print("\n" + "="*60)
+print("SAMPLE TRANSLATIONS")
+print("="*60)
+
+model.eval()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+
+test_samples = val_dataset.select(range(min(5, len(val_dataset))))
+
+for i, sample in enumerate(test_samples):
+    src = sample["{{data.source_column}}"]
+    ref = sample["{{data.target_column}}"]
+
+    inputs = tokenizer(src, return_tensors="pt", max_length=CONFIG["max_src_len"], truncation=True)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=CONFIG["max_new_tokens"],
+            num_beams=CONFIG["num_beams"],
+            forced_bos_token_id=eng_token_id,
+            repetition_penalty=CONFIG["repetition_penalty"],
+            no_repeat_ngram_size=CONFIG["no_repeat_ngram_size"],
+        )
+
+    pred = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    print(f"\n[{i}] SRC: {src[:80]}...")
+    print(f"    REF: {ref[:80]}...")
+    print(f"    OUT: {pred[:80]}...")
+
+# %%
+print("\n" + "="*60)
+print("TRAINING COMPLETE")
+print(f"Config: {{meta.name}} v{{meta.version}}")
+print(f"Dataset: {dataset_type}")
+print(f"Samples: {len(train_tokenized)} train, {len(val_tokenized)} val")
+print(f"Time: {train_time/60:.1f} minutes")
+print(f"Model saved to: {output_dir}")
+print("="*60)

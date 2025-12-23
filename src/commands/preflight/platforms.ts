@@ -51,7 +51,10 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     },
     disk: {
       total_gb: 73,
-      working_gb: 20,  // /kaggle/working limit
+      // IMPORTANT: /kaggle/working + HF cache share same writable partition
+      // Effective limit is ~5-10GB for outputs after HF cache downloads
+      // Being conservative to avoid disk space failures
+      working_gb: 10,
     },
     time: {
       max_hours: 9,
@@ -77,7 +80,7 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     },
     disk: {
       total_gb: 73,
-      working_gb: 20,
+      working_gb: 10,  // Conservative estimate
     },
     time: {
       max_hours: 9,
@@ -103,7 +106,7 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     },
     disk: {
       total_gb: 73,
-      working_gb: 20,
+      working_gb: 10,  // Conservative estimate
     },
     time: {
       max_hours: 9,

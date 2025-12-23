@@ -80,11 +80,11 @@ function extractConfig(content: string): ExtractedConfig {
   const epochsMatch = content.match(/["']?num_epochs["']?\s*[=:]\s*(\d+)/)
   if (epochsMatch) config.num_epochs = parseInt(epochsMatch[1])
 
-  // FP16
-  config.fp16 = /fp16\s*[=:]\s*True/i.test(content)
+  // FP16 (handles both fp16=True and "fp16": True)
+  config.fp16 = /["']?fp16["']?\s*[=:]\s*True/i.test(content)
 
-  // Save total limit
-  const saveMatch = content.match(/save_total_limit\s*=\s*(\d+)/)
+  // Save total limit (handles both save_total_limit=1 and "save_total_limit": 1)
+  const saveMatch = content.match(/["']?save_total_limit["']?\s*[=:]\s*(\d+)/)
   if (saveMatch) config.save_total_limit = parseInt(saveMatch[1])
 
   // Dataloader workers
@@ -135,35 +135,58 @@ function estimateGpuMemory(config: ExtractedConfig): { peak_gb: number; breakdow
 
 /**
  * Estimate disk usage
+ *
+ * IMPORTANT: HuggingFace Trainer saves checkpoints in fp32 by default,
+ * even when training with fp16. This means checkpoint sizes are ~2x
+ * the fp16 model size.
+ *
+ * Additionally, during checkpoint rotation (when save_total_limit > 1),
+ * there can be up to (save_total_limit + 1) checkpoints on disk simultaneously
+ * as the old checkpoint is deleted after the new one is saved.
+ *
+ * Empirical observation: NLLB-600M (1.2GB fp16) saves 2.46GB checkpoints.
  */
-function estimateDiskUsage(config: ExtractedConfig): { total_gb: number; breakdown: Record<string, number> } {
+function estimateDiskUsage(config: ExtractedConfig): { total_gb: number; breakdown: Record<string, number>; peak_gb: number } {
   const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
-  const modelSize = modelInfo?.size_gb || 2.0
+  const modelSizeFp16 = modelInfo?.size_gb || 2.0
+
+  // Checkpoints are saved in fp32 by default (2x fp16 size)
+  const checkpointSize = modelSizeFp16 * 2
 
   const breakdown: Record<string, number> = {}
 
-  // HuggingFace cache (model download)
-  breakdown['hf_cache'] = modelSize * 1.2  // Some overhead
+  // HuggingFace cache (model download - includes both pytorch and safetensors)
+  breakdown['hf_cache'] = modelSizeFp16 * 2.5  // Often downloads multiple formats
 
-  // Checkpoints (depends on save_total_limit)
+  // Checkpoints at steady state
   const saveLimit = config.save_total_limit || 3
-  breakdown['checkpoints'] = modelSize * saveLimit
+  breakdown['checkpoints_steady'] = checkpointSize * saveLimit
 
-  // Final saved model
-  breakdown['final_model'] = modelSize
+  // Peak checkpoint usage: during rotation, +1 checkpoint temporarily exists
+  const peakCheckpoints = checkpointSize * (saveLimit + 1)
+
+  // Final saved model (also fp32 by default from Trainer)
+  breakdown['final_model'] = checkpointSize
 
   // Tokenizer and configs
-  breakdown['tokenizer_config'] = 0.05
+  breakdown['tokenizer_config'] = 0.1
 
-  // Logs and metrics
-  breakdown['logs'] = 0.01
+  // Training logs, tensorboard, etc
+  breakdown['logs'] = 0.05
 
   // Training outputs (submission.csv, etc)
   breakdown['outputs'] = 0.01
 
+  // Optimizer states during training (temporary, but can be large)
+  // Adam optimizer: 2 states per parameter (momentum + variance)
+  breakdown['optimizer_disk'] = 0  // Usually in memory, but can spill
+
   const total_gb = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
-  return { total_gb, breakdown }
+  // Peak includes the extra checkpoint during rotation
+  const peak_gb = total_gb - breakdown['checkpoints_steady'] + peakCheckpoints
+
+  return { total_gb, breakdown, peak_gb }
 }
 
 /**
@@ -227,6 +250,54 @@ interface CheckResult {
   status: 'pass' | 'warn' | 'fail'
   message: string
   details?: Record<string, unknown>
+}
+
+/**
+ * Check for deprecated API usage that will cause runtime errors
+ */
+interface DeprecationIssue {
+  pattern: RegExp
+  message: string
+  fix: string
+  severity: 'error' | 'warning'
+}
+
+const DEPRECATION_CHECKS: DeprecationIssue[] = [
+  {
+    pattern: /evaluation_strategy\s*=/,
+    message: 'evaluation_strategy is deprecated in transformers>=4.46',
+    fix: 'Use eval_strategy instead',
+    severity: 'error',
+  },
+  {
+    pattern: /\.as_target_tokenizer\s*\(/,
+    message: 'as_target_tokenizer() is deprecated in transformers>=4.40',
+    fix: 'Use tokenizer(text, text_target=target) instead',
+    severity: 'warning',
+  },
+  {
+    pattern: /from_pretrained\([^)]*use_auth_token\s*=/,
+    message: 'use_auth_token is deprecated in transformers>=4.35',
+    fix: 'Use token= instead of use_auth_token=',
+    severity: 'warning',
+  },
+]
+
+function checkDeprecations(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  for (const check of DEPRECATION_CHECKS) {
+    if (check.pattern.test(content)) {
+      results.push({
+        check: 'Deprecated API',
+        status: check.severity === 'error' ? 'fail' : 'warn',
+        message: check.message,
+        details: { fix: check.fix },
+      })
+    }
+  }
+
+  return results
 }
 
 // CLI command
@@ -319,6 +390,10 @@ Use 'akk preflight platforms' to see available platforms.
     // Run checks
     const checks: CheckResult[] = []
 
+    // 0. Deprecation Checks (run first - these cause runtime failures)
+    const deprecationResults = checkDeprecations(content)
+    checks.push(...deprecationResults)
+
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
     const gpuStatus = gpuEstimate.peak_gb <= platform.gpu.vram_gb * 0.9 ? 'pass' :
@@ -334,19 +409,19 @@ Use 'akk preflight platforms' to see available platforms.
       details: args.verbose ? gpuEstimate.breakdown : undefined,
     })
 
-    // 2. Disk Space Check
+    // 2. Disk Space Check (use peak_gb for actual limit, as checkpoint rotation creates temporary spikes)
     const diskEstimate = estimateDiskUsage(config)
-    const diskStatus = diskEstimate.total_gb <= platform.disk.working_gb * 0.8 ? 'pass' :
-                       diskEstimate.total_gb <= platform.disk.working_gb ? 'warn' : 'fail'
+    const diskStatus = diskEstimate.peak_gb <= platform.disk.working_gb * 0.8 ? 'pass' :
+                       diskEstimate.peak_gb <= platform.disk.working_gb ? 'warn' : 'fail'
     checks.push({
       check: 'Disk Space',
       status: diskStatus,
       message: diskStatus === 'fail'
-        ? `Estimated ${diskEstimate.total_gb.toFixed(1)}GB exceeds ${platform.disk.working_gb}GB working space`
+        ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.disk.working_gb}GB working space`
         : diskStatus === 'warn'
-        ? `Estimated ${diskEstimate.total_gb.toFixed(1)}GB is close to ${platform.disk.working_gb}GB limit`
-        : `Estimated ${diskEstimate.total_gb.toFixed(1)}GB fits in ${platform.disk.working_gb}GB working space`,
-      details: args.verbose ? diskEstimate.breakdown : undefined,
+        ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB is close to ${platform.disk.working_gb}GB limit`
+        : `Peak ${diskEstimate.peak_gb.toFixed(1)}GB fits in ${platform.disk.working_gb}GB working space`,
+      details: args.verbose ? { ...diskEstimate.breakdown, peak_gb: diskEstimate.peak_gb } : undefined,
     })
 
     // 3. Training Time Check
@@ -380,12 +455,21 @@ Use 'akk preflight platforms' to see available platforms.
     }
 
     // 5. Checkpoint Space Recommendation
-    if (diskStatus === 'fail' && config.save_total_limit && config.save_total_limit > 1) {
-      checks.push({
-        check: 'Recommendation',
-        status: 'warn',
-        message: `Consider reducing save_total_limit from ${config.save_total_limit} to 1`,
-      })
+    if (diskStatus !== 'pass') {
+      const currentLimit = config.save_total_limit || 3
+      if (currentLimit > 1) {
+        checks.push({
+          check: 'Disk Recommendation',
+          status: 'warn',
+          message: `Reduce save_total_limit from ${currentLimit} to 1 (saves ~${(diskEstimate.peak_gb - diskEstimate.total_gb + (currentLimit - 1) * 2 * (MODEL_SIZES[config.model_name || '']?.size_gb || 2)).toFixed(1)}GB)`,
+          details: {
+            current_save_total_limit: currentLimit,
+            recommended: 1,
+            checkpoint_size_gb: (MODEL_SIZES[config.model_name || '']?.size_gb || 2) * 2,
+            note: 'HuggingFace Trainer saves checkpoints in fp32 (2x model size)',
+          },
+        })
+      }
     }
 
     // Summary
