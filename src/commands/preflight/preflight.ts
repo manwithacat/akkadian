@@ -603,6 +603,88 @@ function checkDatasetColumns(content: string): CheckResult[] {
 }
 
 /**
+ * Check for compute_metrics callback when metric_for_best_model is set
+ *
+ * When using custom metrics like chrf, bleu for early stopping or best model selection,
+ * the Seq2SeqTrainer requires a compute_metrics callback to calculate these metrics.
+ */
+function checkComputeMetrics(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check if metric_for_best_model is set to a custom metric
+  const metricMatch = content.match(/["']?metric_for_best_model["']?\s*[=:]\s*["']([^"']+)["']/)
+  if (!metricMatch) {
+    return results // No custom metric configured
+  }
+
+  const metric = metricMatch[1].toLowerCase()
+
+  // Built-in metrics that don't require compute_metrics
+  const builtInMetrics = ['loss', 'eval_loss']
+  if (builtInMetrics.includes(metric)) {
+    return results // Using built-in metric, no callback needed
+  }
+
+  // Custom metrics that require compute_metrics callback
+  const customMetrics = ['chrf', 'bleu', 'sacrebleu', 'rouge', 'meteor', 'accuracy', 'f1']
+  const isCustomMetric = customMetrics.some((m) => metric.includes(m))
+
+  if (!isCustomMetric) {
+    return results // Unknown metric, don't flag
+  }
+
+  // Check if compute_metrics is defined
+  const hasComputeMetricsDef = /def\s+compute_metrics\s*\(/.test(content)
+
+  // Check if compute_metrics is passed to trainer
+  const hasComputeMetricsInTrainer = /Trainer\s*\([^)]*compute_metrics\s*=/.test(content)
+
+  if (!hasComputeMetricsDef) {
+    results.push({
+      check: 'Compute Metrics',
+      status: 'fail',
+      message: `metric_for_best_model="${metric}" requires compute_metrics callback`,
+      details: {
+        fix: `Define a compute_metrics function that returns {"${metric}": value} and pass it to the Trainer`,
+        metric_configured: metric,
+        compute_metrics_defined: false,
+        example: `
+def compute_metrics(eval_preds):
+    preds, labels = eval_preds
+    # Decode predictions
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    # Replace -100 in labels
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    # Compute metric
+    result = metric.compute(predictions=decoded_preds, references=decoded_labels)
+    return {"${metric}": result["score"]}`,
+      },
+    })
+  } else if (!hasComputeMetricsInTrainer) {
+    results.push({
+      check: 'Compute Metrics',
+      status: 'fail',
+      message: `compute_metrics defined but not passed to Trainer`,
+      details: {
+        fix: 'Add compute_metrics=compute_metrics to Seq2SeqTrainer(...)',
+        metric_configured: metric,
+        compute_metrics_defined: true,
+        passed_to_trainer: false,
+      },
+    })
+  } else {
+    results.push({
+      check: 'Compute Metrics',
+      status: 'pass',
+      message: `compute_metrics callback configured for ${metric}`,
+    })
+  }
+
+  return results
+}
+
+/**
  * Check if notebook downloads model from Kaggle Model Registry
  *
  * For fine-tuning or inference from a pre-trained model in Kaggle registry,
@@ -772,6 +854,10 @@ Use 'akk preflight platforms' to see available platforms.
     // 0.9. Dataset Column Checks (for training notebooks)
     const datasetColumnResults = checkDatasetColumns(content)
     checks.push(...datasetColumnResults)
+
+    // 0.10. Compute Metrics Check (for training notebooks with custom metrics)
+    const computeMetricsResults = checkComputeMetrics(content)
+    checks.push(...computeMetricsResults)
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
