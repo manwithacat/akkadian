@@ -321,12 +321,86 @@ function checkDeprecations(content: string): CheckResult[] {
   return results
 }
 
+/**
+ * Check if notebook produces a valid competition submission
+ *
+ * For Kaggle translation competitions, the submission must:
+ * 1. Create a file named submission.csv
+ * 2. Have columns: id, translation
+ * 3. Write to the correct output path (/kaggle/working/)
+ */
+function checkSubmissionOutput(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check for submission.csv creation
+  const submissionPatterns = [
+    /\.to_csv\s*\(\s*["'].*submission\.csv["']/i,
+    /\.to_csv\s*\(\s*["']\/kaggle\/working\/submission\.csv["']/i,
+    /open\s*\(\s*["'].*submission\.csv["']/i,
+    /submission.*\.to_csv/i,
+    /pd\.DataFrame.*\.to_csv.*submission/i,
+  ]
+
+  const hasSubmissionWrite = submissionPatterns.some((p) => p.test(content))
+
+  if (!hasSubmissionWrite) {
+    results.push({
+      check: 'Submission Output',
+      status: 'fail',
+      message: 'No submission.csv output detected',
+      details: {
+        fix: "Add: submission_df.to_csv('/kaggle/working/submission.csv', index=False)",
+        expected_columns: ['id', 'translation'],
+        note: 'Competition notebooks must output submission.csv with id and translation columns',
+      },
+    })
+  } else {
+    // Check for correct column names
+    const hasIdColumn = /["']id["']/.test(content) || /\bid\b\s*[=:]/.test(content)
+    const hasTranslationColumn = /["']translation["']/.test(content) || /translation\s*[=:]/.test(content)
+
+    if (!hasIdColumn || !hasTranslationColumn) {
+      results.push({
+        check: 'Submission Format',
+        status: 'warn',
+        message: 'Submission may be missing required columns (id, translation)',
+        details: {
+          detected_id_column: hasIdColumn,
+          detected_translation_column: hasTranslationColumn,
+          required: ['id', 'translation'],
+        },
+      })
+    } else {
+      results.push({
+        check: 'Submission Output',
+        status: 'pass',
+        message: 'submission.csv output with correct columns detected',
+      })
+    }
+  }
+
+  // Check for index=False (common mistake)
+  if (hasSubmissionWrite && !/index\s*=\s*False/i.test(content)) {
+    results.push({
+      check: 'CSV Index',
+      status: 'warn',
+      message: 'to_csv() may include unwanted index column',
+      details: {
+        fix: "Add index=False: df.to_csv('submission.csv', index=False)",
+      },
+    })
+  }
+
+  return results
+}
+
 // CLI command
 const PreflightArgs = z.object({
   path: z.string().describe('Path to notebook (.ipynb) or script (.py)'),
   platform: z.string().default('kaggle-p100').describe('Target platform profile'),
   samples: z.number().default(1500).describe('Estimated training samples'),
   verbose: z.boolean().default(false).describe('Show detailed breakdown'),
+  competition: z.boolean().default(false).describe('Check for competition submission format'),
 })
 
 export const preflight: CommandDefinition<typeof PreflightArgs> = {
@@ -340,6 +414,11 @@ Analyzes a notebook or script to estimate:
 - Disk space requirements
 - Training time
 
+With --competition flag, also checks:
+- submission.csv output is created
+- Correct columns (id, translation) are present
+- index=False is used in to_csv()
+
 Compares against platform limits (Kaggle P100, Colab, etc.) and reports
 potential issues before deployment.
 
@@ -350,6 +429,7 @@ Use 'akk preflight platforms' to see available platforms.
     'akk preflight check training.py --platform kaggle-p100',
     'akk preflight check notebook.ipynb --platform colab-pro --samples 3000',
     'akk preflight check notebook.ipynb --verbose',
+    'akk preflight check inference.py --competition',
   ],
   args: PreflightArgs,
 
@@ -409,6 +489,12 @@ Use 'akk preflight platforms' to see available platforms.
     // 0. Deprecation Checks (run first - these cause runtime failures)
     const deprecationResults = checkDeprecations(content)
     checks.push(...deprecationResults)
+
+    // 0.5. Competition Submission Checks (if --competition flag is set)
+    if (args.competition) {
+      const submissionResults = checkSubmissionOutput(content)
+      checks.push(...submissionResults)
+    }
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
