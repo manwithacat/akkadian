@@ -9,6 +9,7 @@ import TOML from '@iarna/toml'
 import { existsSync, readFileSync } from 'fs'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
+import { getActiveCompetitionDir, loadActiveCompetitionDirectory } from '../../lib/config'
 import { error, success } from '../../lib/output'
 import { createTemplateEngine, PLATFORM_DISPLAY_NAMES } from '../../templates'
 import type { CommandDefinition } from '../../types/commands'
@@ -645,7 +646,21 @@ Example config structure: see notebooks/kaggle/training.toml
     // Determine output path (include version for unique kernels per version)
     const baseName = config.meta.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
     const versionSuffix = `_v${config.meta.version.replace(/\./g, '_')}`
-    const outputPath = args.output || join(dirname(args.path), `${baseName}${versionSuffix}.py`)
+    const filename = `${baseName}${versionSuffix}.py`
+
+    // Default to competition directory structure if no explicit output
+    let outputPath = args.output
+    if (!outputPath && ctx.config) {
+      const competitionDir = getActiveCompetitionDir(ctx.cwd, ctx.config)
+      // Detect if this is an inference or training notebook
+      const isInference = config.meta.template === 'inference' || config.meta.name.toLowerCase().includes('inference')
+      const notebookSubdir = isInference ? 'notebooks/inference' : 'notebooks/training'
+      outputPath = join(competitionDir, notebookSubdir, filename)
+    }
+    // Fallback to input directory if no competition context
+    if (!outputPath) {
+      outputPath = join(dirname(args.path), filename)
+    }
 
     // Generate notebook
     const notebook = generateNotebook(config, args.path)

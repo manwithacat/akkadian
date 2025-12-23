@@ -2,15 +2,15 @@
  * Configuration handling for Akkadian CLI
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
-import { join, dirname } from 'path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { dirname, join } from 'path'
 import type { AkkConfig } from '../types/commands'
 import {
-  CompetitionConfig,
+  type CompetitionConfig,
   CompetitionConfigSchema,
-  CompetitionDirectory,
-  getCompetitionPaths,
+  type CompetitionDirectory,
   createDefaultCompetitionConfig,
+  getCompetitionPaths,
 } from '../types/competition'
 
 const CONFIG_FILE = 'akk.toml'
@@ -88,8 +88,7 @@ function parseTomlValue(value: string): unknown {
   }
 
   // Quoted string
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     return trimmed.slice(1, -1)
   }
 
@@ -208,12 +207,34 @@ export function defaultConfig(): AkkConfig {
       port: 5000,
     },
     paths: {
-      notebooks: 'notebooks/colab',
+      competitions: 'competitions',
+      notebooks: 'notebooks',
       scripts: 'scripts',
       datasets: 'datasets',
       models: 'models',
     },
   }
+}
+
+/**
+ * Get the active competition directory path
+ * Returns the path to competitions/<slug>/ based on akk.toml config
+ */
+export function getActiveCompetitionDir(projectRoot: string, config: AkkConfig): string {
+  const competitionsBase = config.paths?.competitions || 'competitions'
+  const slug = config.kaggle?.competition || 'default'
+  return join(projectRoot, competitionsBase, slug)
+}
+
+/**
+ * Load competition directory for the active competition from akk.toml
+ */
+export async function loadActiveCompetitionDirectory(
+  projectRoot: string,
+  config: AkkConfig
+): Promise<CompetitionDirectory | null> {
+  const competitionDir = getActiveCompetitionDir(projectRoot, config)
+  return loadCompetitionDirectory(competitionDir)
 }
 
 // ============================================
@@ -223,9 +244,7 @@ export function defaultConfig(): AkkConfig {
 /**
  * Find competition.toml by walking up the directory tree
  */
-export async function findCompetitionConfig(
-  startDir: string = process.cwd()
-): Promise<string | null> {
+export async function findCompetitionConfig(startDir: string = process.cwd()): Promise<string | null> {
   let dir = startDir
 
   while (dir !== '/') {
@@ -242,9 +261,7 @@ export async function findCompetitionConfig(
 /**
  * Load and parse competition.toml
  */
-export async function loadCompetitionConfig(
-  configPath: string
-): Promise<CompetitionConfig | null> {
+export async function loadCompetitionConfig(configPath: string): Promise<CompetitionConfig | null> {
   try {
     const content = readFileSync(configPath, 'utf-8')
     const parsed = parseToml(content)
@@ -265,9 +282,7 @@ export async function loadCompetitionConfig(
 /**
  * Load competition directory information
  */
-export async function loadCompetitionDirectory(
-  startDir: string = process.cwd()
-): Promise<CompetitionDirectory | null> {
+export async function loadCompetitionDirectory(startDir: string = process.cwd()): Promise<CompetitionDirectory | null> {
   const configPath = await findCompetitionConfig(startDir)
   if (!configPath) return null
 
@@ -341,10 +356,7 @@ function formatTomlValue(value: unknown): string {
 /**
  * Save competition config to competition.toml
  */
-export async function saveCompetitionConfig(
-  config: CompetitionConfig,
-  targetDir: string
-): Promise<string> {
+export async function saveCompetitionConfig(config: CompetitionConfig, targetDir: string): Promise<string> {
   const configPath = join(targetDir, COMPETITION_CONFIG_FILE)
 
   // Generate TOML content
@@ -369,10 +381,12 @@ export async function initCompetitionDirectory(
   // Create default config
   const config = createDefaultCompetitionConfig(name, slug, username)
 
-  // Create directory structure
+  // Create directory structure with notebooks subdirectories
   const dirs = [
     targetDir,
     join(targetDir, config.paths.notebooks),
+    join(targetDir, config.paths.notebooks, 'training'),
+    join(targetDir, config.paths.notebooks, 'inference'),
     join(targetDir, config.paths.models),
     join(targetDir, config.paths.submissions),
     join(targetDir, config.paths.datasets),

@@ -3,7 +3,7 @@
  */
 
 import type { z } from 'zod'
-import type { OutputOptions, CommandOutput } from './output'
+import type { CommandOutput, OutputOptions } from './output'
 
 export interface CommandContext {
   /** Current working directory */
@@ -40,6 +40,8 @@ export interface AkkConfig {
     port: number
   }
   paths: {
+    /** Base directory for competitions */
+    competitions?: string
     notebooks: string
     scripts: string
     datasets: string

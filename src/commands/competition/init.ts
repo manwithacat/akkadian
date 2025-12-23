@@ -5,12 +5,12 @@
  * and standard folder structure.
  */
 
-import { z } from 'zod'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
+import { z } from 'zod'
+import { findCompetitionConfig, initCompetitionDirectory } from '../../lib/config'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
-import { initCompetitionDirectory, findCompetitionConfig } from '../../lib/config'
 
 const InitArgs = z.object({
   path: z.string().optional().describe('Directory to initialize (default: current directory)'),
@@ -42,7 +42,20 @@ The competition slug should match the Kaggle competition ID (e.g., "deep-past-in
   args: InitArgs,
 
   async run(args, ctx) {
-    const targetDir = resolve(args.path || process.cwd())
+    // Get competition details first (needed for default path)
+    const name = args.name || args.slug || 'my-competition'
+    const slug = args.slug || name.toLowerCase().replace(/\s+/g, '-')
+    const username = args.username || ctx.config?.kaggle?.username || 'unknown'
+
+    // Determine target directory
+    // If no path specified, default to competitions/<slug> under project root
+    let targetDir: string
+    if (args.path) {
+      targetDir = resolve(args.path)
+    } else {
+      const competitionsBase = ctx.config?.paths?.competitions || 'competitions'
+      targetDir = join(ctx.cwd, competitionsBase, slug)
+    }
 
     // Check for existing competition.toml
     const existingConfig = await findCompetitionConfig(targetDir)
@@ -53,11 +66,6 @@ The competition slug should match the Kaggle competition ID (e.g., "deep-past-in
         'Use --force to overwrite the existing configuration'
       )
     }
-
-    // Get competition details
-    const name = args.name || args.slug || 'my-competition'
-    const slug = args.slug || name.toLowerCase().replace(/\s+/g, '-')
-    const username = args.username || ctx.config?.kaggle?.username || 'unknown'
 
     // Initialize directory
     try {
