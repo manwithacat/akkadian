@@ -15,6 +15,10 @@ import {
   uploadModel,
   runKernel,
   downloadOutput,
+  listKernels,
+  logs,
+  kaggleStatus,
+  kaggleSubmissions,
   configure,
   downloadModel,
   colabUploadNotebook,
@@ -42,6 +46,12 @@ import {
   competitionStatus,
   templateGenerate,
   templateList,
+  mcpServe,
+  dataDownload,
+  dataList,
+  dataRegister,
+  dataExplore,
+  dataWrangler,
 } from './commands'
 
 // Command registry
@@ -53,6 +63,10 @@ const commands: Record<string, Command> = {
   'kaggle upload-model': uploadModel,
   'kaggle run-kernel': runKernel,
   'kaggle download-output': downloadOutput,
+  'kaggle list-kernels': listKernels,
+  'kaggle logs': logs,
+  'kaggle status': kaggleStatus,
+  'kaggle submissions': kaggleSubmissions,
   // Colab commands
   'colab configure': configure,
   'colab download-model': downloadModel,
@@ -88,6 +102,14 @@ const commands: Record<string, Command> = {
   // Template commands
   'template generate': templateGenerate,
   'template list': templateList,
+  // MCP commands
+  'mcp serve': mcpServe,
+  // Data management commands
+  'data download': dataDownload,
+  'data list': dataList,
+  'data register': dataRegister,
+  'data explore': dataExplore,
+  'data wrangler': dataWrangler,
 }
 
 // Global options schema
@@ -154,7 +176,7 @@ function parseArgs(argv: string[]): {
       if (!subcommand && !arg.startsWith('-')) {
         // Check if this could be a subcommand
         const potentialCmd = `${command} ${arg}`
-        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition', 'template'].includes(command)) {
+        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition', 'template', 'mcp', 'data'].includes(command)) {
           subcommand = arg
           i++
           continue
@@ -232,10 +254,14 @@ Commands:
   version                      Show version info
   doctor                       Check environment and dependencies
 
-  kaggle upload-notebook       Upload notebook to Kaggle kernels
+  kaggle upload-notebook       Upload notebook to Kaggle kernels (with versioning)
   kaggle upload-model          Upload model to Kaggle Models
   kaggle run-kernel            Run and monitor a Kaggle kernel
   kaggle download-output       Download kernel outputs
+  kaggle list-kernels          List kernel versions from registry
+  kaggle logs                  Retrieve and display kernel execution logs
+  kaggle status                Check kernel execution status
+  kaggle submissions           List competition submissions and scoring status
 
   colab configure              Set up GCS bucket and auth
   colab upload-notebook        Upload notebook to GCS for Colab
@@ -271,6 +297,14 @@ Commands:
 
   template list                List available templates and platforms
   template generate            Generate notebook from template
+
+  mcp serve                    Start MCP server for LLM agents
+
+  data download                Download competition data from Kaggle
+  data list                    List registered dataset versions
+  data register                Register dataset with lineage tracking
+  data explore                 Launch Datasette to explore datasets
+  data wrangler                Launch Marimo for rich dataframe exploration
 
 Global Options:
   --help, -h     Show help
@@ -352,6 +386,20 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
 
   // Create context
   const ctx = await createContext(globalOpts)
+
+  // Special handling for MCP serve - it takes over stdio directly
+  if (fullCommand === 'mcp serve') {
+    const { main: startMcpServer } = await import('./mcp/server')
+    try {
+      await startMcpServer()
+      // Server exited normally
+      process.exit(0)
+    } catch (err) {
+      // Only write to stderr to avoid breaking MCP protocol
+      console.error('MCP server error:', err instanceof Error ? err.message : String(err))
+      process.exit(1)
+    }
+  }
 
   try {
     // Parse and validate command arguments

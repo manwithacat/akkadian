@@ -24,6 +24,149 @@ export type ModelStatus = 'active' | 'testing' | 'archived'
 export type KernelStatus = 'queued' | 'running' | 'complete' | 'error' | 'cancelled'
 
 /**
+ * Kernel versioning strategy
+ */
+export type VersioningStrategy =
+  | 'timestamp'   // nllb-train-20241222-143022
+  | 'semver'      // nllb-train-v1, nllb-train-v2
+  | 'experiment'  // nllb-train-exp-01, nllb-train-exp-02
+  | 'overwrite'   // default Kaggle behavior (no versioning)
+
+/**
+ * Kernel versioning configuration (for competition.toml)
+ */
+export const KernelVersioningSchema = z.object({
+  strategy: z.enum(['timestamp', 'semver', 'experiment', 'overwrite']).default('semver'),
+  prefix_separator: z.string().default('-'),
+  track_in_mlflow: z.boolean().default(true),
+  auto_increment: z.boolean().default(true),
+})
+
+export type KernelVersioning = z.infer<typeof KernelVersioningSchema>
+
+/**
+ * Notebook-level versioning configuration (for kernel-metadata.json)
+ *
+ * When use_kaggle_versioning is false, each version creates a unique kernel
+ * with the version embedded in the ID (e.g., nllb-inference-v1-0-0).
+ * This avoids Kaggle's confusing internal version system.
+ */
+export const NotebookVersioningSchema = z.object({
+  /** If false, embed version in kernel ID instead of using Kaggle's versioning */
+  use_kaggle_versioning: z.boolean().default(true),
+  /** Versioning strategy: semver embeds major-minor-patch in ID */
+  strategy: z.enum(['timestamp', 'semver', 'experiment']).default('semver'),
+  /** Current version (semver format: "1.0.0" or number for other strategies) */
+  current_version: z.union([z.string(), z.number()]).default('1.0.0'),
+  /** Base kernel name (without version suffix) */
+  base_name: z.string().optional(),
+})
+
+export type NotebookVersioning = z.infer<typeof NotebookVersioningSchema>
+
+/**
+ * Extended kernel metadata with versioning support
+ */
+export const KernelMetadataSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  code_file: z.string(),
+  language: z.string().default('python'),
+  kernel_type: z.string().default('script'),
+  is_private: z.boolean().default(false),
+  enable_gpu: z.boolean().default(true),
+  enable_tpu: z.boolean().default(false),
+  enable_internet: z.boolean().default(false),
+  dataset_sources: z.array(z.string()).default([]),
+  competition_sources: z.array(z.string()).default([]),
+  kernel_sources: z.array(z.string()).default([]),
+  model_sources: z.array(z.string()).default([]),
+  /** Versioning configuration - when present, controls how kernel IDs are generated */
+  versioning: NotebookVersioningSchema.optional(),
+})
+
+export type KernelMetadata = z.infer<typeof KernelMetadataSchema>
+
+/**
+ * Generate a versioned kernel ID based on metadata versioning config
+ */
+export function generateVersionedKernelId(
+  username: string,
+  baseName: string,
+  versioning: NotebookVersioning
+): { id: string; slug: string } {
+  const baseSlug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+  if (versioning.use_kaggle_versioning) {
+    // Use simple slug, let Kaggle handle versioning
+    return {
+      id: `${username}/${baseSlug}`,
+      slug: baseSlug,
+    }
+  }
+
+  // Embed version in the kernel ID
+  let versionSuffix: string
+
+  switch (versioning.strategy) {
+    case 'semver': {
+      // Convert "1.0.0" to "v1-0-0"
+      const version = String(versioning.current_version)
+      versionSuffix = `v${version.replace(/\./g, '-')}`
+      break
+    }
+    case 'timestamp': {
+      const now = new Date()
+      versionSuffix = now.toISOString().slice(0, 19).replace(/[-:T]/g, '').replace(/(\d{8})(\d{6})/, '$1-$2')
+      break
+    }
+    case 'experiment': {
+      const expNum = typeof versioning.current_version === 'number'
+        ? versioning.current_version
+        : parseInt(String(versioning.current_version).split('.')[0], 10) || 1
+      versionSuffix = `exp-${String(expNum).padStart(2, '0')}`
+      break
+    }
+    default:
+      versionSuffix = `v${String(versioning.current_version).replace(/\./g, '-')}`
+  }
+
+  const slug = `${baseSlug}-${versionSuffix}`
+  return {
+    id: `${username}/${slug}`,
+    slug,
+  }
+}
+
+/**
+ * Increment version based on strategy and bump type
+ */
+export function incrementVersion(
+  current: string | number,
+  strategy: NotebookVersioning['strategy'],
+  bump: 'major' | 'minor' | 'patch' = 'patch'
+): string | number {
+  if (strategy === 'semver') {
+    const parts = String(current).split('.').map(Number)
+    const [major = 1, minor = 0, patch = 0] = parts
+
+    switch (bump) {
+      case 'major':
+        return `${major + 1}.0.0`
+      case 'minor':
+        return `${major}.${minor + 1}.0`
+      case 'patch':
+      default:
+        return `${major}.${minor}.${patch + 1}`
+    }
+  }
+
+  // For timestamp/experiment, just increment the number
+  const num = typeof current === 'number' ? current : parseInt(String(current), 10) || 0
+  return num + 1
+}
+
+/**
  * Kaggle-specific competition settings
  */
 export const KaggleSettingsSchema = z.object({
@@ -31,6 +174,7 @@ export const KaggleSettingsSchema = z.object({
   team: z.string().optional(),
   data_sources: z.array(z.string()).default([]),
   model_sources: z.array(z.string()).optional(),
+  kernel_versioning: KernelVersioningSchema.optional(),
 })
 
 export type KaggleSettings = z.infer<typeof KaggleSettingsSchema>
@@ -89,13 +233,31 @@ export const ModelConfigSchema = z.object({
 export type ModelConfig = z.infer<typeof ModelConfigSchema>
 
 /**
+ * Individual kernel version record
+ */
+export const KernelVersionRecordSchema = z.object({
+  version: z.number(),
+  kaggle_slug: z.string(),
+  timestamp: z.string(),
+  status: z.enum(['queued', 'running', 'complete', 'error', 'cancelled']).optional(),
+  mlflow_run_id: z.string().optional(),
+  model: z.string().optional(),
+  notes: z.string().optional(),
+})
+
+export type KernelVersionRecord = z.infer<typeof KernelVersionRecordSchema>
+
+/**
  * Kernel configuration
  */
 export const KernelConfigSchema = z.object({
+  base_name: z.string(),
   slug: z.string(),
   current_version: z.number().default(1),
   last_run: z.string().optional(),
   last_status: z.enum(['queued', 'running', 'complete', 'error', 'cancelled']).optional(),
+  versioning_strategy: z.enum(['timestamp', 'semver', 'experiment', 'overwrite']).optional(),
+  versions: z.array(KernelVersionRecordSchema).default([]),
 })
 
 export type KernelConfig = z.infer<typeof KernelConfigSchema>

@@ -16,6 +16,9 @@ export interface CommandContext {
   config?: AkkConfig
 }
 
+/** Supported ML frameworks */
+export type MLFramework = 'pytorch' | 'tensorflow' | 'jax'
+
 export interface AkkConfig {
   project: {
     name: string
@@ -24,6 +27,8 @@ export interface AkkConfig {
   kaggle: {
     username: string
     competition: string
+    /** Internet access for Kaggle kernels (false for competition submissions) */
+    enable_internet?: boolean
   }
   colab: {
     gcs_bucket: string
@@ -39,6 +44,11 @@ export interface AkkConfig {
     scripts: string
     datasets: string
     models: string
+  }
+  /** Training configuration */
+  training?: {
+    /** Primary ML framework: pytorch, tensorflow, or jax */
+    framework?: MLFramework
   }
 }
 

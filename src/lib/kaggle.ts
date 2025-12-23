@@ -71,9 +71,23 @@ export async function getKernelStatus(slug: string): Promise<KernelStatus> {
     throw new Error(`Failed to get kernel status: ${stderr}`)
   }
 
-  // Parse status from output like "manwithacat/nllb-train has status "complete""
-  const statusMatch = stdout.match(/status "(\w+)"/)
-  const status = (statusMatch?.[1] || 'error') as KernelStatus['status']
+  // Parse status from output like:
+  // - "manwithacat/nllb-train has status "complete""
+  // - "manwithacat/nllb-train has status "KernelWorkerStatus.RUNNING""
+  const statusMatch = stdout.match(/status "(?:KernelWorkerStatus\.)?(\w+)"/i)
+  const rawStatus = statusMatch?.[1]?.toLowerCase() || 'error'
+
+  // Map Kaggle status values to our simplified status
+  const statusMap: Record<string, KernelStatus['status']> = {
+    'queued': 'queued',
+    'running': 'running',
+    'complete': 'complete',
+    'error': 'error',
+    'cancelled': 'cancelled',
+    'cancelacknowledged': 'cancelled',
+  }
+
+  const status = statusMap[rawStatus] || 'error'
 
   // Check for failure message
   const failureMatch = stdout.match(/failureMessage:\s*"([^"]+)"/)
@@ -233,4 +247,86 @@ export async function waitForKernel(
   }
 
   return { status: 'error', failureMessage: 'Timeout waiting for kernel completion' }
+}
+
+/**
+ * Competition submission status
+ */
+export interface CompetitionSubmission {
+  fileName: string
+  date: string
+  description: string
+  status: 'pending' | 'complete' | 'error'
+  publicScore?: number
+  privateScore?: number
+}
+
+/**
+ * Parse a CSV line handling quoted fields
+ */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+
+    if (char === '"') {
+      inQuotes = !inQuotes
+    } else if (char === ',' && !inQuotes) {
+      result.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  result.push(current)
+
+  return result
+}
+
+/**
+ * Get competition submissions
+ */
+export async function getCompetitionSubmissions(competition: string): Promise<CompetitionSubmission[]> {
+  const { stdout, stderr, exitCode } = await runKaggle(['competitions', 'submissions', '-c', competition, '-v'])
+
+  if (exitCode !== 0) {
+    throw new Error(`Failed to get submissions: ${stderr}`)
+  }
+
+  // Parse CSV output
+  const lines = stdout.trim().split('\n')
+  if (lines.length < 2) {
+    return []
+  }
+
+  // Skip header line
+  const submissions: CompetitionSubmission[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    // CSV format: fileName,date,description,status,publicScore,privateScore
+    const parts = parseCSVLine(line)
+    if (parts.length >= 4) {
+      const rawStatus = parts[3].toLowerCase()
+      let status: CompetitionSubmission['status'] = 'error'
+      if (rawStatus.includes('pending')) {
+        status = 'pending'
+      } else if (rawStatus.includes('complete')) {
+        status = 'complete'
+      }
+
+      submissions.push({
+        fileName: parts[0],
+        date: parts[1],
+        description: parts[2] || '',
+        status,
+        publicScore: parts[4] ? parseFloat(parts[4]) : undefined,
+        privateScore: parts[5] ? parseFloat(parts[5]) : undefined,
+      })
+    }
+  }
+
+  return submissions
 }

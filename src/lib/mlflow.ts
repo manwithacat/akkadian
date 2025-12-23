@@ -301,3 +301,234 @@ export async function getRun(port: number, runId: string): Promise<Run | null> {
     return null
   }
 }
+
+/**
+ * Set tags on a run
+ */
+export async function setRunTags(
+  port: number,
+  runId: string,
+  tags: Record<string, string>
+): Promise<boolean> {
+  try {
+    for (const [key, value] of Object.entries(tags)) {
+      const response = await fetch(`http://localhost:${port}/api/2.0/mlflow/runs/set-tag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ run_id: runId, key, value: String(value) }),
+      })
+
+      if (!response.ok) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ============================================
+// Kernel Tracking for Kaggle Notebooks
+// ============================================
+
+export interface KernelRunInfo {
+  experimentId: string
+  runId: string
+  runName: string
+  kernelId: string
+  version: number
+  baseName: string
+  strategy: string
+  timestamp: string
+  model?: string
+  notes?: string
+}
+
+/**
+ * Log a Kaggle kernel upload to MLflow
+ *
+ * Creates a new run in the "kaggle-kernels" experiment to track
+ * kernel versions, associated models, and eventual run results.
+ */
+export async function logKernelUpload(
+  port: number,
+  kernelInfo: {
+    kernelId: string
+    baseName: string
+    version: number
+    strategy: string
+    timestamp: string
+    model?: string
+    notes?: string
+    gpu?: boolean
+    internet?: boolean
+    competition?: string
+  }
+): Promise<KernelRunInfo | null> {
+  try {
+    // Get or create "kaggle-kernels" experiment
+    const experimentId = await getOrCreateExperiment(port, 'kaggle-kernels')
+    if (!experimentId) return null
+
+    // Create run with descriptive name
+    const runName = `${kernelInfo.baseName}-v${kernelInfo.version}`
+    const run = await createRun(port, experimentId, runName)
+    if (!run) return null
+
+    // Log parameters
+    const params: Record<string, string> = {
+      kernel_id: kernelInfo.kernelId,
+      base_name: kernelInfo.baseName,
+      version: String(kernelInfo.version),
+      strategy: kernelInfo.strategy,
+      upload_timestamp: kernelInfo.timestamp,
+    }
+
+    if (kernelInfo.model) params.model = kernelInfo.model
+    if (kernelInfo.competition) params.competition = kernelInfo.competition
+    if (kernelInfo.gpu !== undefined) params.gpu = String(kernelInfo.gpu)
+    if (kernelInfo.internet !== undefined) params.internet = String(kernelInfo.internet)
+
+    await logParams(port, run.runId, params)
+
+    // Set tags for filtering
+    const tags: Record<string, string> = {
+      'mlflow.runName': runName,
+      kernel_type: 'kaggle',
+      kernel_base: kernelInfo.baseName,
+    }
+
+    if (kernelInfo.model) tags.model = kernelInfo.model
+    if (kernelInfo.notes) tags.notes = kernelInfo.notes
+
+    await setRunTags(port, run.runId, tags)
+
+    // Keep run in RUNNING state (will update when kernel completes)
+
+    return {
+      experimentId,
+      runId: run.runId,
+      runName,
+      kernelId: kernelInfo.kernelId,
+      version: kernelInfo.version,
+      baseName: kernelInfo.baseName,
+      strategy: kernelInfo.strategy,
+      timestamp: kernelInfo.timestamp,
+      model: kernelInfo.model,
+      notes: kernelInfo.notes,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Update kernel run with final status and metrics
+ */
+export async function updateKernelRun(
+  port: number,
+  runId: string,
+  status: 'complete' | 'error' | 'cancelled',
+  metrics?: Record<string, number>
+): Promise<boolean> {
+  try {
+    // Map Kaggle status to MLflow status
+    const mlflowStatus: 'FINISHED' | 'FAILED' | 'KILLED' =
+      status === 'complete' ? 'FINISHED' :
+      status === 'cancelled' ? 'KILLED' : 'FAILED'
+
+    // Log metrics if provided
+    if (metrics && Object.keys(metrics).length > 0) {
+      await logMetrics(port, runId, metrics)
+    }
+
+    // Update run status
+    await setRunStatus(port, runId, mlflowStatus)
+
+    // Add completion tag
+    await setRunTags(port, runId, {
+      kernel_status: status,
+      completion_time: new Date().toISOString(),
+    })
+
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * List all kernel runs from MLflow
+ */
+export async function listKernelRuns(
+  port: number,
+  filter?: {
+    baseName?: string
+    model?: string
+    status?: string
+  }
+): Promise<Array<{
+  runId: string
+  runName: string
+  kernelId: string
+  version: number
+  status: string
+  timestamp: string
+  model?: string
+}>> {
+  try {
+    // Build filter string
+    let filterStr = 'tags.kernel_type = "kaggle"'
+    if (filter?.baseName) {
+      filterStr += ` AND tags.kernel_base = "${filter.baseName}"`
+    }
+    if (filter?.model) {
+      filterStr += ` AND tags.model = "${filter.model}"`
+    }
+
+    const response = await fetch(`http://localhost:${port}/api/2.0/mlflow/runs/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        experiment_ids: [],
+        filter: filterStr,
+        max_results: 100,
+        order_by: ['start_time DESC'],
+      }),
+    })
+
+    if (!response.ok) return []
+
+    const data = (await response.json()) as {
+      runs?: Array<{
+        info?: {
+          run_id?: string
+          status?: string
+          start_time?: number
+        }
+        data?: {
+          params?: Array<{ key: string; value: string }>
+          tags?: Array<{ key: string; value: string }>
+        }
+      }>
+    }
+
+    const runs = data.runs || []
+
+    return runs.map((run) => {
+      const params = new Map(run.data?.params?.map((p) => [p.key, p.value]) || [])
+      const tags = new Map(run.data?.tags?.map((t) => [t.key, t.value]) || [])
+
+      return {
+        runId: run.info?.run_id || '',
+        runName: tags.get('mlflow.runName') || '',
+        kernelId: params.get('kernel_id') || '',
+        version: parseInt(params.get('version') || '0', 10),
+        status: run.info?.status || 'UNKNOWN',
+        timestamp: params.get('upload_timestamp') || '',
+        model: params.get('model'),
+      }
+    }).filter((r) => r.runId)
+  } catch {
+    return []
+  }
+}

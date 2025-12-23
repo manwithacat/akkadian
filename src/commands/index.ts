@@ -2,7 +2,7 @@ export { version } from './version'
 export { doctor } from './doctor'
 
 // Kaggle commands
-export { uploadNotebook, uploadModel, runKernel, downloadOutput } from './kaggle'
+export { uploadNotebook, uploadModel, runKernel, downloadOutput, listKernels, logs, status as kaggleStatus, submissions as kaggleSubmissions } from './kaggle'
 
 // Colab commands
 export { configure, downloadModel, uploadNotebook as colabUploadNotebook, colabStatus, downloadArtifacts, cleanup } from './colab'
@@ -27,3 +27,9 @@ export { competitionInit, competitionStatus } from './competition'
 
 // Template commands
 export { templateGenerate, templateList } from './template'
+
+// MCP commands
+export { mcpServe } from './mcp'
+
+// Data management commands
+export { download as dataDownload, list as dataList, register as dataRegister, explore as dataExplore, wrangler as dataWrangler } from './data'

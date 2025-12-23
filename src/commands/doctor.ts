@@ -75,6 +75,14 @@ export const doctor: CommandDefinition<typeof DoctorArgs> = {
     checks.push(await checkCommand('jupytext'))
     checks.push(await checkCommand('python3'))
 
+    // Check optional tools (datasette for data exploration)
+    const datasetteCheck = await checkCommand('datasette')
+    if (datasetteCheck.status === 'error') {
+      datasetteCheck.status = 'warning'
+      datasetteCheck.message = 'Optional: pip install datasette'
+    }
+    checks.push(datasetteCheck)
+
     // Check configuration files
     const homeDir = process.env.HOME || '~'
     checks.push(await checkFile('kaggle.json', `${homeDir}/.kaggle/kaggle.json`))

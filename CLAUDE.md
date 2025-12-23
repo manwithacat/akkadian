@@ -20,15 +20,117 @@ bun run build
 ```bash
 akk doctor                 # Check environment and dependencies
 akk version               # Show version info
+akk mcp serve              # Start MCP server for LLM agents
+```
+
+### MCP Server (LLM Agent Integration)
+
+The MCP server allows LLM agents (like Claude) to interact with Akkadian via the Model Context Protocol.
+
+```bash
+# Start the MCP server (runs on stdio)
+akk mcp serve
+```
+
+#### Claude Desktop Configuration
+
+Add to your Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "akkadian": {
+      "command": "/path/to/akk",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+#### Token-Efficient Design
+
+The MCP server is designed to minimize context usage:
+
+- **Single Tool**: Only one tool schema (~100 tokens) is always loaded
+- **On-Demand Resources**: Domain knowledge is fetched only when needed
+- **Progressive Disclosure**: Use `akk help` for quick reference, `akk help <topic>` for details
+
+#### Available Resources
+
+| Resource | Description |
+|----------|-------------|
+| `akk://knowledge/quick` | Minimal command reference (~300 tokens) |
+| `akk://knowledge/full` | Complete domain knowledge with workflows |
+| `akk://status` | Current project state (competition, models, kernels) |
+
+#### Tool Usage
+
+```
+# Get quick command reference
+akk help
+
+# Get help on specific topic
+akk help kaggle-train        # Workflow guide
+akk help oom-fix             # Pattern/recipe
+akk help kaggle-p100         # Platform info
+akk help preflight check     # Command details
+
+# Run any CLI command
+akk kaggle list-kernels
+akk preflight validate train.py --platform kaggle-p100
 ```
 
 ### Kaggle
 
 ```bash
-akk kaggle upload-notebook <path>    # Upload .py/.ipynb to Kaggle kernels
+akk kaggle upload-notebook <path>    # Upload .py/.ipynb to Kaggle kernels (with versioning)
 akk kaggle upload-model <path>       # Upload model to Kaggle Models
 akk kaggle run-kernel <slug>         # Check/monitor kernel status
 akk kaggle download-output <slug>    # Download kernel output files
+akk kaggle list-kernels              # List kernel versions from registry
+```
+
+#### Kernel Versioning
+
+By default, each notebook upload creates a uniquely-named kernel version, tracked locally in `competition.toml` and optionally in MLflow. This avoids Kaggle's confusing version UI.
+
+```bash
+# Creates train-v1, train-v2, etc. (semver strategy)
+akk kaggle upload-notebook train.py
+
+# Use timestamp-based naming
+akk kaggle upload-notebook train.py --strategy timestamp
+# Creates: train-20241222-143022
+
+# Use experiment-based naming
+akk kaggle upload-notebook train.py --strategy experiment
+# Creates: train-exp-01, train-exp-02, etc.
+
+# Preview next version without uploading
+akk kaggle upload-notebook train.py --dry-run
+
+# Associate with a model and add notes
+akk kaggle upload-notebook train.py --model nllb-v4 --notes "Fixed BLEU eval"
+
+# Skip versioning, use exact title (Kaggle default behavior)
+akk kaggle upload-notebook train.py --no-version --title "NLLB Training"
+
+# List all kernel versions
+akk kaggle list-kernels
+akk kaggle list-kernels --name nllb-train
+
+# List kernel runs from MLflow
+akk kaggle list-kernels --mlflow
+```
+
+Configure versioning in `competition.toml`:
+
+```toml
+[competition.kaggle.kernel_versioning]
+strategy = "semver"           # semver, timestamp, experiment, or overwrite
+prefix_separator = "-"        # Separator before version
+track_in_mlflow = true        # Log uploads to MLflow
+auto_increment = true         # Auto-increment version numbers
 ```
 
 ### Colab / GCS

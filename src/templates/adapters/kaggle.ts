@@ -6,6 +6,7 @@
 
 import type { PlatformAdapter, TemplateContext, PlatformPaths } from '../../types/template'
 import type { PlatformId } from '../../types/platform'
+import type { MLFramework } from '../../types/commands'
 import { BATCH_SIZE_RECOMMENDATIONS, getRecommendedBatchSize } from '../../types/template'
 
 export class KaggleAdapter implements PlatformAdapter {
@@ -18,16 +19,90 @@ export class KaggleAdapter implements PlatformAdapter {
                 platformId === 'kaggle-t4x2' ? 'Kaggle T4 x2' : 'Kaggle CPU'
   }
 
+  /**
+   * Generate framework-specific environment variables
+   */
+  private generateFrameworkEnvVars(framework: MLFramework = 'pytorch'): string {
+    const common = `
+# Suppress Python warnings from common noisy sources
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*MessageFactory.*")  # Protobuf
+warnings.filterwarnings("ignore", message=".*SymbolDatabase.*")  # Protobuf
+
+# Suppress transformers and tokenizers warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+
+# Disable tqdm progress bars on Kaggle (each update creates a log line)
+os.environ["TQDM_DISABLE"] = "1"
+`
+
+    if (framework === 'pytorch') {
+      return `
+# ==== PyTorch-only: Prevent TF/Flax backends from loading ====
+os.environ["TRANSFORMERS_NO_TF"] = "1"
+os.environ["TRANSFORMERS_NO_FLAX"] = "1"
+os.environ["USE_TF"] = "0"
+os.environ["USE_FLAX"] = "0"
+
+# Suppress TensorFlow/XLA C++ logging (cuFFT, cuDNN, cuBLAS registration messages)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["GLOG_minloglevel"] = "3"
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
+# Suppress PyTorch-specific warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+warnings.filterwarnings("ignore", message=".*torch.cuda.amp.*")
+
+# PyTorch memory optimization
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+${common}`
+    }
+
+    if (framework === 'tensorflow') {
+      return `
+# ==== TensorFlow-only: Prevent PyTorch/Flax backends from loading ====
+os.environ["TRANSFORMERS_NO_FLAX"] = "1"
+os.environ["USE_FLAX"] = "0"
+
+# TensorFlow logging configuration
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # 0=DEBUG, 1=INFO, 2=WARNING, 3=ERROR
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+${common}`
+    }
+
+    if (framework === 'jax') {
+      return `
+# ==== JAX/Flax: Prevent TF/PyTorch backends from loading ====
+os.environ["TRANSFORMERS_NO_TF"] = "1"
+os.environ["USE_TF"] = "0"
+
+# JAX configuration
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+${common}`
+    }
+
+    return common
+  }
+
   generateSetupCell(ctx: TemplateContext): string {
     const competition = ctx.competition?.competition.slug || 'competition-name'
     const gpuType = this.id === 'kaggle-p100' ? 'P100' :
                    this.id === 'kaggle-t4x2' ? 'T4' : 'CPU'
+    // Get framework from context or default to pytorch
+    const framework: MLFramework = (ctx as { framework?: MLFramework }).framework || 'pytorch'
 
     return `# Kaggle Environment Setup
 import os
 import sys
 import subprocess
-
+import warnings
+${this.generateFrameworkEnvVars(framework)}
 # Environment detection
 IS_KAGGLE = os.environ.get('KAGGLE_KERNEL_RUN_TYPE') is not None
 print(f"Running on Kaggle: {IS_KAGGLE}")
@@ -42,12 +117,6 @@ if IS_KAGGLE:
         print(f"GPU: {gpu_info.stdout.strip()}")
     except Exception as e:
         print(f"No GPU detected or nvidia-smi failed: {e}")
-
-# Memory optimization settings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 
 # Paths
 INPUT_PATH = "/kaggle/input/${competition}"
