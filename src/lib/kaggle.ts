@@ -330,7 +330,7 @@ export async function getCompetitionSubmissions(competition: string): Promise<Co
         fileName: parts[0],
         date: parts[1],
         description: parts[2] || '',
-        logStep,
+        status,
         publicScore: parts[4] ? parseFloat(parts[4]) : undefined,
         privateScore: parts[5] ? parseFloat(parts[5]) : undefined,
       })

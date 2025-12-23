@@ -5,7 +5,7 @@
 import { basename, join } from 'path'
 import { z } from 'zod'
 import { download, getSize, listFiles, rsync } from '../../lib/gcs'
-import { error, logStep, success } from '../../lib/output'
+import { error, logStep, progress, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
 
 const DownloadModelArgs = z.object({
@@ -84,7 +84,7 @@ Options:
     await Bun.spawn(['mkdir', '-p', outDir]).exited
 
     // Download
-    progress(
+    logStep(
       {
         step: 'download',
         message: `Downloading ${files.length} files (${sizeStr}) to ${outDir}...`,

@@ -276,7 +276,7 @@ export async function setRunStatus(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         run_id: runId,
-        logStep,
+        status,
         end_time: status !== 'RUNNING' ? Date.now() : undefined,
       }),
     })
@@ -441,7 +441,7 @@ export async function updateKernelRun(
 
     // Add completion tag
     await setRunTags(port, runId, {
-      kernel_status: logStep,
+      kernel_status: status,
       completion_time: new Date().toISOString(),
     })
 

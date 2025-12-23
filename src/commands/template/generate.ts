@@ -5,20 +5,25 @@
  */
 
 import { z } from 'zod'
+import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
+import { error, success } from '../../lib/output'
+import { AVAILABLE_TEMPLATES, createTemplateEngine, PLATFORM_DISPLAY_NAMES } from '../../templates'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
-import { loadCompetitionConfig } from '../../lib/config'
-import { createTemplateEngine, AVAILABLE_TEMPLATES, PLATFORM_DISPLAY_NAMES } from '../../templates'
 import type { PlatformId } from '../../types/platform'
 import type { TemplateContext } from '../../types/template'
 import type { ToolId } from '../../types/tools'
-import { TOOL_REGISTRY, checkToolCompatibility } from '../../types/tools'
+import { checkToolCompatibility, TOOL_REGISTRY } from '../../types/tools'
 
 const VALID_PLATFORMS: PlatformId[] = [
-  'kaggle-p100', 'kaggle-t4x2', 'kaggle-cpu',
-  'colab-free', 'colab-pro',
-  'vertex-a100', 'vertex-t4',
-  'runpod-a100', 'runpod-3090',
+  'kaggle-p100',
+  'kaggle-t4x2',
+  'kaggle-cpu',
+  'colab-free',
+  'colab-pro',
+  'vertex-a100',
+  'vertex-t4',
+  'runpod-a100',
+  'runpod-3090',
 ]
 
 const VALID_TOOLS: ToolId[] = ['sacrebleu', 'qlora', 'accelerate', 'onnx', 'streaming', 'hpo']
@@ -34,7 +39,10 @@ const GenerateArgs = z.object({
   tgtLang: z.string().optional().describe('Target language code'),
   learningRate: z.number().optional().describe('Learning rate'),
   notebook: z.boolean().default(false).describe('Output as Jupyter notebook'),
-  tools: z.string().optional().describe('Comma-separated ML tools to include (sacrebleu,qlora,accelerate,onnx,streaming,hpo)'),
+  tools: z
+    .string()
+    .optional()
+    .describe('Comma-separated ML tools to include (sacrebleu,qlora,accelerate,onnx,streaming,hpo)'),
 })
 
 export const generate: CommandDefinition<typeof GenerateArgs> = {
@@ -83,7 +91,7 @@ If a competition.toml exists in the current directory, defaults are read from it
     const templateName = args.path || 'training'
 
     // Validate template name
-    if (!AVAILABLE_TEMPLATES.includes(templateName as typeof AVAILABLE_TEMPLATES[number])) {
+    if (!AVAILABLE_TEMPLATES.includes(templateName as (typeof AVAILABLE_TEMPLATES)[number])) {
       return error(
         'UNKNOWN_TEMPLATE',
         `Unknown template: ${templateName}`,
@@ -112,16 +120,12 @@ If a competition.toml exists in the current directory, defaults are read from it
     // Parse and validate tools
     let enabledTools: ToolId[] = []
     if (args.tools) {
-      const requestedTools = args.tools.split(',').map(t => t.trim().toLowerCase()) as ToolId[]
+      const requestedTools = args.tools.split(',').map((t) => t.trim().toLowerCase()) as ToolId[]
 
       // Validate tool names
       for (const tool of requestedTools) {
         if (!VALID_TOOLS.includes(tool)) {
-          return error(
-            'UNKNOWN_TOOL',
-            `Unknown tool: ${tool}`,
-            `Available tools: ${VALID_TOOLS.join(', ')}`
-          )
+          return error('UNKNOWN_TOOL', `Unknown tool: ${tool}`, `Available tools: ${VALID_TOOLS.join(', ')}`)
         }
       }
 
@@ -141,7 +145,10 @@ If a competition.toml exists in the current directory, defaults are read from it
     // Try to load competition config for defaults
     let competitionConfig = null
     try {
-      competitionConfig = await loadCompetitionConfig()
+      const configPath = await findCompetitionConfig(ctx.cwd)
+      if (configPath) {
+        competitionConfig = await loadCompetitionConfig(configPath)
+      }
     } catch {
       // No competition config, use defaults
     }
@@ -172,9 +179,12 @@ If a competition.toml exists in the current directory, defaults are read from it
         src: args.srcLang || 'akk_Xsux',
         tgt: args.tgtLang || 'eng_Latn',
       },
-      tools: enabledTools.length > 0 ? {
-        enabled: enabledTools,
-      } : undefined,
+      tools:
+        enabledTools.length > 0
+          ? {
+              enabled: enabledTools,
+            }
+          : undefined,
     }
 
     // Add competition context if available
@@ -233,15 +243,18 @@ If a competition.toml exists in the current directory, defaults are read from it
         },
         metadata: metadataPath,
         settings: {
-          model: templateCtx.model.name,
-          epochs: templateCtx.training.epochs,
-          batch_size: templateCtx.training.batch_size,
-          learning_rate: templateCtx.training.learning_rate,
+          model: templateCtx.model?.name ?? 'unknown',
+          epochs: templateCtx.training?.epochs ?? 10,
+          batch_size: templateCtx.training?.batch_size ?? 2,
+          learning_rate: templateCtx.training?.learning_rate ?? 5e-5,
         },
-        tools: enabledTools.length > 0 ? {
-          enabled: enabledTools,
-          descriptions: enabledTools.map(t => TOOL_REGISTRY[t].description),
-        } : undefined,
+        tools:
+          enabledTools.length > 0
+            ? {
+                enabled: enabledTools,
+                descriptions: enabledTools.map((t) => TOOL_REGISTRY[t].description),
+              }
+            : undefined,
         warnings: result.warnings.length > 0 ? result.warnings : undefined,
       })
     } catch (err) {

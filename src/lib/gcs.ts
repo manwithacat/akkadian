@@ -217,3 +217,33 @@ export async function getSize(gcsPath: string): Promise<number | null> {
   const match = stdout.match(/^(\d+)/)
   return match ? parseInt(match[1], 10) : null
 }
+
+/**
+ * Check if a file or directory exists in GCS
+ */
+export async function exists(gcsPath: string): Promise<boolean> {
+  const { exitCode } = await runGsutil(['ls', gcsPath])
+  return exitCode === 0
+}
+
+/**
+ * Delete a file or directory from GCS
+ */
+export async function deleteFile(
+  gcsPath: string,
+  options: { recursive?: boolean } = {}
+): Promise<{ success: boolean; message: string }> {
+  const args = ['rm']
+  if (options.recursive) {
+    args.push('-r')
+  }
+  args.push(gcsPath)
+
+  const { stdout, stderr, exitCode } = await runGsutil(args)
+
+  if (exitCode !== 0) {
+    return { success: false, message: stderr || stdout }
+  }
+
+  return { success: true, message: stdout || 'Deleted successfully' }
+}

@@ -117,7 +117,7 @@ Returns a readiness score (0-100) and detailed breakdown.
       return success({
         file: basename(args.path),
         platform: platform || 'any',
-        logStep,
+        status,
         ready: result.ready,
         score: result.score,
         valid: result.valid,
@@ -130,7 +130,7 @@ Returns a readiness score (0-100) and detailed breakdown.
     return success({
       file: basename(args.path),
       platform: platform ? PLATFORMS[platform].name : 'Any platform',
-      logStep,
+      status,
       ready: result.ready,
       score: `${result.score}/100`,
       summary: {

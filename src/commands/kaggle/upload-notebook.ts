@@ -13,7 +13,7 @@ import {
   type VersionedKernel,
 } from '../../lib/kernel-registry'
 import { checkServer, logKernelUpload } from '../../lib/mlflow'
-import { error, logStep, success } from '../../lib/output'
+import { error, logStep, progress, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
 import type { KernelMetadata, NotebookVersioning, VersioningStrategy } from '../../types/competition'
 import { generateVersionedKernelId, incrementVersion, KernelMetadataSchema } from '../../types/competition'
@@ -201,7 +201,7 @@ Other Options:
           kernelTitle = versionedKernel.slug.replace(/-/g, ' ')
         } catch (err) {
           // Fallback to simple versioning if registry fails
-          progress(
+          logStep(
             {
               step: 'version',
               message: 'Registry unavailable, using simple versioning',
@@ -246,7 +246,7 @@ Other Options:
       finalKernelId = id
       finalTitle = slug
 
-      progress(
+      logStep(
         {
           step: 'version',
           message: `Using metadata versioning: ${id} (v${existingMetadata.versioning.current_version})`,
@@ -325,7 +325,7 @@ Other Options:
       }
 
       await Bun.write(existingMetadataPath, JSON.stringify(updatedMetadata, null, 2))
-      progress(
+      logStep(
         {
           step: 'version',
           message: `Auto-incremented version: ${currentVersion} -> ${nextVersion}`,

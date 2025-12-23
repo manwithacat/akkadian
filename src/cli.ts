@@ -382,17 +382,19 @@ async function createContext(globalOpts: z.infer<typeof GlobalOptions>): Promise
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const { command, subcommand, args, globalOpts } = parseArgs(argv)
 
-  // Build full command name (for subcommands like "kaggle upload-notebook")
-  const fullCommand = subcommand ? `${command} ${subcommand}` : command
-
   // Show help if requested or no command
   if (globalOpts.help || !command) {
-    showHelp(fullCommand ?? undefined)
+    const fullCmd = subcommand && command ? `${command} ${subcommand}` : command
+    showHelp(fullCmd ?? undefined)
     process.exit(command ? 0 : 1)
   }
 
+  // Build full command name (for subcommands like "kaggle upload-notebook")
+  // At this point, command is guaranteed to be non-null
+  const fullCommand = subcommand ? `${command} ${subcommand}` : command
+
   // Find command
-  const cmd = commands[fullCommand] || commands[command]
+  const cmd = commands[fullCommand!] || commands[command]
   if (!cmd) {
     const ctx = await createContext(globalOpts)
     const output = error(
@@ -407,7 +409,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
 
   // Check for --help after command
   if (args.help) {
-    showHelp(fullCommand)
+    showHelp(fullCommand ?? undefined)
     process.exit(0)
   }
 
@@ -435,7 +437,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
       const issues = parsedArgs.error.issues
       const output = error(
         'INVALID_ARGS',
-        `Invalid arguments: ${issues.map((i) => i.message).join(', ')}`,
+        `Invalid arguments: ${issues.map((i: { message: string }) => i.message).join(', ')}`,
         `Run 'akk ${fullCommand} --help' for usage`,
         { issues }
       )

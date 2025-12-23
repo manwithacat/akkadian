@@ -796,6 +796,8 @@ Example config structure: see notebooks/kaggle/training.toml
           platform: config.platform.target,
           samples: 2000,
           verbose: false,
+          training: true, // Training notebook - check for model save/upload
+          competition: false, // Not an inference notebook
         },
         ctx
       )

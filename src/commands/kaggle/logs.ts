@@ -105,7 +105,7 @@ Options:
           }
           return success({
             slug,
-            status: status.logStep,
+            status: status.status,
             format: 'raw',
             content: logContent,
             saved: save || null,
@@ -176,7 +176,7 @@ Options:
         // Build summary
         const summary = {
           slug,
-          status: status.logStep,
+          status: status.status,
           totalEntries: entries.length,
           streams: {
             stdout: entries.filter((e) => e.stream_name === 'stdout').length,

@@ -66,7 +66,7 @@ Use --pending to filter for submissions still being scored.
       // Format for display
       const formatted = subs.map((s) => ({
         date: s.date,
-        status: s.logStep,
+        status: s.status,
         score: s.publicScore ?? null,
         description: s.description || null,
       }))

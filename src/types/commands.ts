@@ -33,6 +33,8 @@ export interface AkkConfig {
   colab: {
     gcs_bucket: string
     project: string
+    /** Default experiment name for MLflow runs */
+    default_experiment?: string
   }
   mlflow: {
     tracking_uri: string
@@ -54,7 +56,7 @@ export interface AkkConfig {
   }
 }
 
-export interface CommandDefinition<TArgs extends z.ZodType = z.ZodType> {
+export interface CommandDefinition<TArgs extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string
   description: string
   /** Long description shown in help */
@@ -67,4 +69,6 @@ export interface CommandDefinition<TArgs extends z.ZodType = z.ZodType> {
   run: (args: z.infer<TArgs>, ctx: CommandContext) => Promise<CommandOutput>
 }
 
-export type Command = CommandDefinition<z.ZodType>
+// Use 'any' for the command registry to avoid variance issues with ZodObject types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Command = CommandDefinition<any>

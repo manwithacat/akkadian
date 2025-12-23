@@ -92,7 +92,7 @@ If a CSV file is provided, it will be automatically converted to SQLite.
         }
 
         parentVersionId = parentDataset.id
-        status(
+        logStep(
           { step: 'parent', message: `Linked to parent: ${parentDataset.name}:${parentDataset.version}` },
           ctx.output
         )

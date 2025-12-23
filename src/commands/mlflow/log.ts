@@ -39,7 +39,7 @@ Options:
   args: LogArgs,
 
   async run(args, ctx) {
-    const { experiment, run: runName, params, metrics, logStep, port } = args
+    const { experiment, run: runName, params, metrics, status, port } = args
 
     // Check server running
     logStep({ step: 'check', message: 'Checking MLFlow server...' }, ctx.output)
@@ -129,7 +129,7 @@ Options:
       runName,
       params: parsedParams,
       metrics: parsedMetrics,
-      logStep,
+      status,
       url: `http://localhost:${port}/#/experiments/${experimentId}/runs/${runInfo.runId}`,
     })
   },

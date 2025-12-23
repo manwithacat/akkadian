@@ -264,7 +264,7 @@ export async function listRegisteredKernels(projectDir?: string): Promise<
     currentVersion: kernel.current_version,
     strategy: kernel.versioning_strategy,
     lastRun: kernel.last_run,
-    lastStatus: kernel.last_logStep,
+    lastStatus: kernel.last_status,
   }))
 }
 

@@ -216,6 +216,20 @@ export function logStep(event: StepEvent, options: OutputOptions): void {
 }
 
 /**
+ * Write a warning message
+ */
+export function warn(message: string, options: OutputOptions): void {
+  if (options.quiet) return
+
+  if (options.format === 'json') {
+    console.log(JSON.stringify({ type: 'warning', message }))
+  } else {
+    const msg = options.color ? `${colors.yellow}Warning: ${message}${colors.reset}` : `Warning: ${message}`
+    console.log(msg)
+  }
+}
+
+/**
  * Common error codes and their agent hints
  */
 export const ErrorHints = {

@@ -6,9 +6,9 @@
  */
 
 import { z } from 'zod'
-import type { PlatformId } from './platform'
+import type { PlatformId, PlatformPaths } from './platform'
 
-export type { PlatformPaths } from './platform'
+export type { PlatformPaths }
 
 import type { CompetitionConfig, GCSConfig, TrainingDefaults } from './competition'
 import type { ToolConfig, ToolId } from './tools'

@@ -4,7 +4,7 @@
 
 import { z } from 'zod'
 import { downloadKernelOutput, getKernelStatus, waitForKernel } from '../../lib/kaggle'
-import { error, logStep, success } from '../../lib/output'
+import { error, logStep, progress, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
 
 const RunKernelArgs = z.object({
@@ -60,7 +60,7 @@ Options:
       if (!wait) {
         return success({
           slug,
-          status: initialStatus.logStep,
+          status: initialStatus.status,
           failureMessage: initialStatus.failureMessage,
         })
       }
@@ -79,13 +79,13 @@ Options:
 
         return success({
           slug,
-          status: initialStatus.logStep,
+          status: initialStatus.status,
           failureMessage: initialStatus.failureMessage,
           downloaded: download && initialStatus.status === 'complete',
         })
       }
 
-      progress(
+      logStep(
         {
           step: 'wait',
           message: `Waiting for kernel completion (polling every ${interval}s, timeout ${timeout}s)...`,
@@ -97,7 +97,7 @@ Options:
         interval: interval * 1000,
         timeout: timeout * 1000,
         onStatus: (status) => {
-          logStep({ step: 'poll', message: `Status: ${status.status}`, current: 0, total: 1 }, ctx.output)
+          logStep({ step: 'poll', message: `Status: ${status.status}` }, ctx.output)
         },
       })
 
@@ -121,7 +121,7 @@ Options:
 
       return success({
         slug,
-        status: finalStatus.logStep,
+        status: finalStatus.status,
         failureMessage: finalStatus.failureMessage,
         downloaded: download && finalStatus.status === 'complete',
       })

@@ -6,7 +6,7 @@ import { join } from 'path'
 import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
 import { checkDatasetteInstalled, findAvailablePort, isPortInUse, startDatasette } from '../../lib/datasette'
-import { error, logStep, success } from '../../lib/output'
+import { error, logStep, progress, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
 import { parseDatasetRef } from '../../types/data'
 
@@ -95,7 +95,7 @@ Requires datasette to be installed: pip install datasette
         }
 
         databases.push(dataset.sqlitePath)
-        progress({ step: 'found', message: `Opening ${dataset.name}:${dataset.version}` }, ctx.output)
+        logStep({ step: 'found', message: `Opening ${dataset.name}:${dataset.version}` }, ctx.output)
       } else {
         // Get all unique datasets (latest versions)
         const names = registry.getDatasetNames()
@@ -120,7 +120,7 @@ Requires datasette to be installed: pip install datasette
           }
         }
 
-        progress({ step: 'found', message: `Opening ${databases.length} datasets` }, ctx.output)
+        logStep({ step: 'found', message: `Opening ${databases.length} datasets` }, ctx.output)
       }
 
       // Also include registry for metadata exploration
@@ -129,7 +129,7 @@ Requires datasette to be installed: pip install datasette
       // Find available port
       let port = requestedPort
       if (await isPortInUse(port)) {
-        progress({ step: 'port', message: `Port ${port} in use, finding alternative...` }, ctx.output)
+        logStep({ step: 'port', message: `Port ${port} in use, finding alternative...` }, ctx.output)
         port = await findAvailablePort(requestedPort + 1)
       }
 
