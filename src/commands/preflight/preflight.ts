@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'fs'
-import { basename, extname } from 'path'
+import { basename, dirname, extname, join } from 'path'
 import { z } from 'zod'
 import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
@@ -603,6 +603,185 @@ function checkDatasetColumns(content: string): CheckResult[] {
 }
 
 /**
+ * Known packages pre-installed on Kaggle (as of Dec 2024)
+ * These don't require pip install or internet access
+ */
+const KAGGLE_PREINSTALLED = [
+  'transformers',
+  'torch',
+  'tensorflow',
+  'numpy',
+  'pandas',
+  'scikit-learn',
+  'matplotlib',
+  'seaborn',
+  'nltk',
+  'sacrebleu', // Pre-installed on Kaggle!
+  'evaluate',
+  'datasets',
+  'accelerate',
+  'sentencepiece',
+  'tokenizers',
+  'kagglehub',
+  'huggingface_hub',
+]
+
+/**
+ * Metrics available via evaluate that DON'T require internet download
+ * because sacrebleu is pre-installed on Kaggle
+ */
+const EVALUATE_METRICS_NEEDING_DOWNLOAD: Record<string, string[]> = {
+  // These metrics download from HuggingFace hub
+  chrf: ['sacrebleu'], // sacrebleu is pre-installed, but evaluate.load downloads
+  bleu: ['sacrebleu'],
+  sacrebleu: ['sacrebleu'],
+  rouge: ['rouge_score'],
+  meteor: ['nltk'],
+  bertscore: ['bert_score'],
+}
+
+/**
+ * Check for operations that require internet access
+ *
+ * When enable_internet=false in kernel-metadata.json:
+ * - pip install will fail
+ * - evaluate.load() will fail (downloads from HuggingFace)
+ * - HuggingFace model downloads will fail (use Kaggle Models instead)
+ *
+ * This check warns about these issues before pushing to Kaggle.
+ */
+function checkInternetDependencies(content: string, metadataPath?: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Try to read kernel-metadata.json to check internet setting
+  let internetEnabled = true // Default to true (most permissive)
+  let hasMetadata = false
+
+  if (metadataPath && existsSync(metadataPath)) {
+    try {
+      const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'))
+      internetEnabled = metadata.enable_internet !== false
+      hasMetadata = true
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // If internet is enabled, no concerns
+  if (internetEnabled && hasMetadata) {
+    return results
+  }
+
+  // Check for pip install commands
+  const pipInstallMatches = content.match(/!pip\s+install\s+([^\n]+)/g) || []
+  const pipInstalls = pipInstallMatches.map((m) => m.replace(/!pip\s+install\s+/, '').trim())
+
+  // Filter out pre-installed packages
+  const problematicPipInstalls = pipInstalls.filter((pkg) => {
+    const basePkg = pkg
+      .split(/[<>=[\]]/)[0]
+      .trim()
+      .toLowerCase()
+    return !KAGGLE_PREINSTALLED.includes(basePkg)
+  })
+
+  if (problematicPipInstalls.length > 0) {
+    if (!internetEnabled) {
+      results.push({
+        check: 'Internet Required',
+        status: 'fail',
+        message: `pip install requires internet but enable_internet=false`,
+        details: {
+          packages: problematicPipInstalls,
+          fix: 'Either enable internet in kernel-metadata.json, or remove pip installs for non-preinstalled packages',
+          preinstalled: KAGGLE_PREINSTALLED,
+        },
+      })
+    } else {
+      results.push({
+        check: 'Internet Required',
+        status: 'warn',
+        message: `pip install found - will fail if internet is disabled for competition submission`,
+        details: {
+          packages: problematicPipInstalls,
+          note: 'Competition submission kernels typically require enable_internet=false',
+        },
+      })
+    }
+  }
+
+  // Check for evaluate.load() which downloads metrics from HuggingFace
+  const evaluateLoadMatches = content.match(/evaluate\.load\s*\(\s*["']([^"']+)["']/g) || []
+  const evaluateMetrics = evaluateLoadMatches
+    .map((m) => {
+      const match = m.match(/["']([^"']+)["']/)
+      return match ? match[1] : ''
+    })
+    .filter(Boolean)
+
+  if (evaluateMetrics.length > 0) {
+    if (!internetEnabled) {
+      results.push({
+        check: 'Internet Required',
+        status: 'fail',
+        message: `evaluate.load() downloads metrics from HuggingFace but enable_internet=false`,
+        details: {
+          metrics: evaluateMetrics,
+          fix: 'Use sacrebleu directly instead of evaluate.load(). Example:\nimport sacrebleu\nresult = sacrebleu.corpus_chrf(hypotheses, [references])',
+          alternative: 'Or use loss-based early stopping: metric_for_best_model="eval_loss"',
+        },
+      })
+    } else {
+      results.push({
+        check: 'Internet Required',
+        status: 'warn',
+        message: `evaluate.load() requires internet - will fail if enable_internet=false`,
+        details: {
+          metrics: evaluateMetrics,
+          note: 'Competition submission kernels typically require enable_internet=false',
+          fix: 'Use sacrebleu directly: sacrebleu.corpus_chrf(hypotheses, [references])',
+        },
+      })
+    }
+  }
+
+  // Check for HuggingFace model downloads (not from Kaggle Models)
+  const fromPretrainedMatches = content.match(/from_pretrained\s*\(\s*["']([^"']+)["']/g) || []
+  const modelPaths = fromPretrainedMatches
+    .map((m) => {
+      const match = m.match(/["']([^"']+)["']/)
+      return match ? match[1] : ''
+    })
+    .filter(Boolean)
+
+  // Filter to only HuggingFace hub models (contain / but not local paths)
+  const hubModels = modelPaths.filter((p) => {
+    // Skip local paths
+    if (p.startsWith('./') || p.startsWith('/') || p.startsWith('~')) return false
+    // Skip kagglehub downloaded paths
+    if (p.includes('/kaggle/')) return false
+    // Skip variable references
+    if (p.includes('model_path') || p.includes('MODEL_PATH')) return false
+    // Hub models contain org/model format
+    return p.includes('/')
+  })
+
+  if (hubModels.length > 0 && !internetEnabled) {
+    results.push({
+      check: 'Internet Required',
+      status: 'fail',
+      message: `HuggingFace model download requires internet but enable_internet=false`,
+      details: {
+        models: hubModels,
+        fix: 'Use Kaggle Models instead:\n1. Upload model to Kaggle Model Registry\n2. Add to kernel-metadata.json model_sources\n3. Use: model_path = kagglehub.model_download("user/model/framework/version")',
+      },
+    })
+  }
+
+  return results
+}
+
+/**
  * Check for compute_metrics callback when metric_for_best_model is set
  *
  * When using custom metrics like chrf, bleu for early stopping or best model selection,
@@ -858,6 +1037,13 @@ Use 'akk preflight platforms' to see available platforms.
     // 0.10. Compute Metrics Check (for training notebooks with custom metrics)
     const computeMetricsResults = checkComputeMetrics(content)
     checks.push(...computeMetricsResults)
+
+    // 0.11. Internet Dependencies Check (critical for competition kernels)
+    // Look for kernel-metadata.json in same directory as the notebook
+    const notebookDir = dirname(args.path)
+    const metadataPath = join(notebookDir, 'kernel-metadata.json')
+    const internetResults = checkInternetDependencies(content, metadataPath)
+    checks.push(...internetResults)
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
