@@ -459,6 +459,62 @@ kagglehub.model_upload(
 }
 
 /**
+ * Check if progress bars are disabled for clean Kaggle logs
+ *
+ * TQDM and HuggingFace progress bars create messy logs in Kaggle kernels.
+ * Setting these environment variables at the start of the notebook keeps logs clean.
+ */
+function checkProgressBarsDisabled(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check for TQDM_DISABLE
+  const hasTqdmDisable = /os\.environ\s*\[\s*["']TQDM_DISABLE["']\s*\]\s*=\s*["']1["']/.test(content)
+
+  // Check for HF_HUB_DISABLE_PROGRESS_BARS
+  const hasHfDisable = /os\.environ\s*\[\s*["']HF_HUB_DISABLE_PROGRESS_BARS["']\s*\]\s*=\s*["']1["']/.test(content)
+
+  if (!hasTqdmDisable && !hasHfDisable) {
+    results.push({
+      check: 'Progress Bars',
+      status: 'warn',
+      message: 'Progress bars not disabled - Kaggle logs will be messy',
+      details: {
+        fix: 'Add at the start of your notebook:\nos.environ["TQDM_DISABLE"] = "1"\nos.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"',
+        missing: ['TQDM_DISABLE', 'HF_HUB_DISABLE_PROGRESS_BARS'],
+      },
+    })
+  } else if (!hasTqdmDisable) {
+    results.push({
+      check: 'Progress Bars',
+      status: 'warn',
+      message: 'TQDM progress bars not disabled',
+      details: {
+        fix: 'Add: os.environ["TQDM_DISABLE"] = "1"',
+        missing: ['TQDM_DISABLE'],
+      },
+    })
+  } else if (!hasHfDisable) {
+    results.push({
+      check: 'Progress Bars',
+      status: 'warn',
+      message: 'HuggingFace progress bars not disabled',
+      details: {
+        fix: 'Add: os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"',
+        missing: ['HF_HUB_DISABLE_PROGRESS_BARS'],
+      },
+    })
+  } else {
+    results.push({
+      check: 'Progress Bars',
+      status: 'pass',
+      message: 'Progress bars disabled for clean Kaggle logs',
+    })
+  }
+
+  return results
+}
+
+/**
  * Check if notebook downloads model from Kaggle Model Registry
  *
  * For fine-tuning or inference from a pre-trained model in Kaggle registry,
@@ -620,6 +676,10 @@ Use 'akk preflight platforms' to see available platforms.
     // 0.7. Kaggle Model Source Checks (detect model_download usage)
     const kaggleSourceResults = checkKaggleModelSource(content)
     checks.push(...kaggleSourceResults)
+
+    // 0.8. Progress Bar Checks (for clean Kaggle logs)
+    const progressBarResults = checkProgressBarsDisabled(content)
+    checks.push(...progressBarResults)
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)

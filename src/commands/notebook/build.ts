@@ -266,6 +266,8 @@ import shutil
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["TQDM_DISABLE"] = "1"  # Disable progress bars for clean Kaggle logs
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"  # Disable HuggingFace download bars
 
 import torch
 import pandas as pd
