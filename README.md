@@ -1,47 +1,57 @@
-# Akkadian
+# akk
 
-A CLI tool for managing ML competition workflows across Kaggle, Google Colab, Vertex AI, and RunPod.
+A CLI for managing ML training workflows across Kaggle, Google Colab, and local environments. Built for the [Akkadian cuneiform translation competition](https://www.kaggle.com/competitions/deep-past-initiative-machine-translation) but useful for any ML project.
 
 ## Features
 
-- **Competition Management**: Initialize and manage competition directories with standardized structure
-- **Multi-Platform Support**: Deploy notebooks to Kaggle, Colab, Vertex AI, or RunPod
-- **Preflight Checks**: Validate notebooks against platform resource limits before deployment
-- **MLFlow Integration**: Track experiments and models across training runs
-- **Template System**: Generate platform-optimized notebooks from templates (coming soon)
-- **MCP Server**: Expose tools and resources for LLM agent integration (coming soon)
+- **Kaggle Integration**: Upload notebooks, track kernel versions, monitor execution, download outputs
+- **Colab/GCS Integration**: Upload notebooks to GCS, monitor training, download artifacts
+- **MLflow Tracking**: Local and GCS-backed experiment tracking with full UI support
+- **Preflight Validation**: Catch OOM, disk space, and API deprecation issues before deployment
+- **Notebook Generation**: Deterministic notebook builds from TOML configuration
+- **MCP Server**: LLM agent integration via Model Context Protocol
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/akkadian.git
-cd akkadian
+brew install manwithacat/tap/akk
+```
 
-# Install dependencies
+### From Source
+
+Requires [Bun](https://bun.sh) runtime.
+
+```bash
+git clone https://github.com/manwithacat/akkadian.git
+cd akkadian/tools/akk-cli
 bun install
-
-# Build the CLI
 bun run build
-
-# Add to PATH (optional)
-export PATH="$PATH:$(pwd)/dist"
+./dist/akk --help
 ```
 
 ## Quick Start
 
 ```bash
-# Initialize a new competition
-akk competition init --slug my-competition --username myuser
+# Check environment and dependencies
+akk doctor
 
-# Check competition status
-akk competition status
+# Upload notebook to Kaggle with auto-versioning
+akk kaggle upload-notebook train.py
 
-# Pre-flight check a notebook
-akk preflight check notebook.py --platform kaggle-p100
+# Monitor kernel execution
+akk kaggle status manwithacat/my-kernel
+akk kaggle logs manwithacat/my-kernel
 
-# List available platforms
-akk preflight platforms
+# Validate notebook before deployment
+akk preflight check train.py --platform kaggle-p100
+
+# Generate notebook from TOML config
+akk notebook build training.toml
+
+# Start MCP server for LLM agents
+akk mcp serve
 ```
 
 ## Commands
@@ -57,7 +67,23 @@ akk competition status            # Show competition status and scores
 
 ```bash
 akk preflight check <path>        # Check notebook against platform limits
+akk preflight validate <path>     # Full validation suite
 akk preflight platforms           # List available platform profiles
+```
+
+### Notebook Generation
+
+```bash
+akk notebook build <config.toml>  # Generate notebook from TOML config
+```
+
+### Data Management
+
+```bash
+akk data download                 # Download competition data
+akk data list                     # List registered datasets
+akk data register <path>          # Register dataset with lineage
+akk data explore                  # Launch Datasette
 ```
 
 ### Kaggle Integration
@@ -156,15 +182,15 @@ default_batch_size = 2
 
 ## Platform Profiles
 
-| Platform | GPU | VRAM | Disk | Max Hours | Pricing |
-|----------|-----|------|------|-----------|---------|
-| kaggle-p100 | Tesla P100 | 16GB | 20GB | 9h | Quota |
-| kaggle-t4x2 | Tesla T4 x2 | 15GB | 20GB | 9h | Quota |
-| colab-free | Tesla T4 | 15GB | 50GB | 12h | Free |
-| colab-pro | A100-40GB | 40GB | 100GB | 24h | Paid |
-| vertex-a100 | A100-40GB | 40GB | 400GB | 168h | Paid |
-| runpod-a100 | A100-80GB | 80GB | 400GB | Unlimited | Paid |
-| runpod-3090 | RTX 3090 | 24GB | 150GB | Unlimited | Paid |
+| Platform | GPU | VRAM | Disk | Max Hours | Notes |
+|----------|-----|------|------|-----------|-------|
+| kaggle-p100 | Tesla P100 | 16GB | 10GB | 9h | Competition kernels |
+| kaggle-t4x2 | Tesla T4 x2 | 30GB | 10GB | 9h | Larger models |
+| colab-t4 | Tesla T4 | 15GB | 100GB | 12h | Development |
+| colab-a100 | A100-40GB | 40GB | 200GB | 24h | Large-scale training |
+| vertex-a100 | A100-40GB | 40GB | 400GB | 168h | Production training |
+
+> Note: Kaggle's 10GB working disk is shared with HF cache. Use `save_total_limit=1` and clear cache after model load.
 
 ## Development
 
@@ -207,15 +233,25 @@ src/
     └── workflow/         # Workflow orchestration
 ```
 
-## Roadmap
+## MCP Server
 
-- [x] Competition management
-- [x] Preflight checks
-- [x] Platform profiles
-- [ ] Template system for notebook generation
-- [ ] Platform migration tools
-- [ ] MCP server for LLM agent integration
-- [ ] Extended competition workflow (submit, history, leaderboard)
+The MCP server enables LLM agents (like Claude) to interact with akk:
+
+```json
+{
+  "mcpServers": {
+    "akkadian": {
+      "command": "akk",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Agents can then use:
+- `akk help` - Quick command reference
+- `akk help <topic>` - Detailed help on commands, workflows, patterns
+- Any CLI command via the `akk` tool
 
 ## License
 
