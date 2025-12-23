@@ -279,10 +279,10 @@ export function getTableInfo(
 }
 
 /**
- * Get list of tables in a SQLite database
+ * Get list of tables in a SQLite database (excludes internal tables starting with _)
  */
 export function getTableList(db: Database): string[] {
-  const result = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_%'").all() as Array<{ name: string }>
+  const result = db.query("SELECT name FROM sqlite_master WHERE type='table' AND substr(name, 1, 1) != '_'").all() as Array<{ name: string }>
   return result.map((row) => row.name)
 }
 

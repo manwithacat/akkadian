@@ -30,150 +30,139 @@ async function checkMarimoInstalled(): Promise<boolean> {
  */
 function generateMarimoNotebook(dbPath: string, tables: string[]): string {
   const tableList = JSON.stringify(tables)
+  const defaultTable = tables[0] || 'train'
 
   return `import marimo
 
 app = marimo.App(width="full")
 
 @app.cell
-def __():
+def _():
     import marimo as mo
     import pandas as pd
     import sqlite3
+    return mo, pd, sqlite3
 
-    # Database path
+@app.cell
+def _(sqlite3):
     DB_PATH = "${dbPath}"
-
-    # Available tables
-    TABLE_LIST = ${tableList}
-
-    return DB_PATH, TABLE_LIST, mo, pd, sqlite3
-
-@app.cell
-def __(mo):
-    mo.md("""
-    # Data Wrangler
-
-    Interactive exploration of competition datasets with column statistics,
-    data previews, and custom SQL queries.
-    """)
-    return
-
-@app.cell
-def __(DB_PATH, TABLE_LIST, mo, pd, sqlite3):
-    # Connect and get table info
     conn = sqlite3.connect(DB_PATH)
-
-    table_info = []
-    for t in TABLE_LIST:
-        try:
-            count = pd.read_sql_query(f'SELECT COUNT(*) as cnt FROM "{t}"', conn).iloc[0]['cnt']
-            cols = pd.read_sql_query(f'PRAGMA table_info("{t}")', conn)
-            table_info.append({
-                'Table': t,
-                'Rows': f"{count:,}",
-                'Columns': len(cols)
-            })
-        except:
-            pass
-
-    mo.md("## Tables Overview")
-    return conn, table_info
+    TABLE_LIST = ${tableList}
+    return DB_PATH, TABLE_LIST, conn
 
 @app.cell
-def __(mo, pd, table_info):
-    mo.ui.table(pd.DataFrame(table_info), selection=None)
+def _(mo):
+    mo.md("# Data Wrangler")
     return
 
 @app.cell
-def __(TABLE_LIST, mo):
-    # Table selector
-    table_select = mo.ui.dropdown(
+def _(TABLE_LIST, mo):
+    table_dropdown = mo.ui.dropdown(
         options=TABLE_LIST,
-        value=TABLE_LIST[0] if TABLE_LIST else None,
+        value="${defaultTable}",
         label="Select Table"
     )
-    table_select
-    return table_select,
+    return table_dropdown,
 
 @app.cell
-def __(conn, mo, pd, table_select):
-    # Load selected table
-    selected_table = table_select.value
-    if selected_table:
-        df = pd.read_sql_query(f'SELECT * FROM "{selected_table}"', conn)
-        mo.md(f"### {selected_table} ({len(df):,} rows, {len(df.columns)} columns)")
-    else:
-        df = pd.DataFrame()
-        mo.md("Select a table above")
-    return df, selected_table
-
-@app.cell
-def __(df, mo, pd):
-    # Column statistics
-    if len(df) > 0:
-        stats = []
-        for col in df.columns:
-            col_stats = {
-                'Column': col,
-                'Type': str(df[col].dtype),
-                'Non-null': int(df[col].notna().sum()),
-                'Null': int(df[col].isna().sum()),
-                'Unique': int(df[col].nunique()),
-            }
-            if df[col].dtype in ['int64', 'float64']:
-                col_stats['Min'] = df[col].min()
-                col_stats['Max'] = df[col].max()
-                col_stats['Mean'] = round(df[col].mean(), 2)
-            stats.append(col_stats)
-
-        mo.vstack([
-            mo.md("#### Column Statistics"),
-            mo.ui.table(pd.DataFrame(stats), selection=None)
-        ])
-    else:
-        mo.md("")
+def _(table_dropdown):
+    table_dropdown
     return
 
 @app.cell
-def __(df, mo):
-    # Data preview
-    if len(df) > 0:
-        mo.vstack([
-            mo.md("#### Data Preview"),
-            mo.ui.table(df, page_size=25, selection=None)
+def _(conn, mo, pd, table_dropdown):
+    _name = table_dropdown.value
+    if _name:
+        _df = pd.read_sql_query(f'SELECT * FROM "{_name}"', conn)
+        _stats = []
+        for _col in _df.columns:
+            _s = {'Column': _col, 'Type': str(_df[_col].dtype),
+                  'Non-null': int(_df[_col].notna().sum()),
+                  'Null': int(_df[_col].isna().sum()),
+                  'Unique': int(_df[_col].nunique())}
+            if _df[_col].dtype in ['int64', 'float64']:
+                _s['Min'], _s['Max'] = _df[_col].min(), _df[_col].max()
+            _stats.append(_s)
+        _stats_df = pd.DataFrame(_stats)
+        _output = mo.vstack([
+            mo.md(f"## {_name}"),
+            mo.md(f"**{len(_df):,} rows** · {len(_df.columns)} columns"),
+            mo.md("### Column Info"),
+            mo.ui.table(_stats_df),
+            mo.md("### Data Preview"),
+            mo.ui.dataframe(_df),
         ])
     else:
-        mo.md("")
+        _output = mo.md("No table selected")
+    _output
     return
 
 @app.cell
-def __(mo):
-    mo.md("## Custom SQL Query")
+def _(mo):
+    mo.md("---\\n## SQL Query Builder")
     return
 
 @app.cell
-def __(mo):
-    # SQL input
-    sql_input = mo.ui.text_area(
-        value="SELECT * FROM train LIMIT 10",
-        label="Enter SQL query",
-        full_width=True
-    )
-    sql_input
-    return sql_input,
+def _(TABLE_LIST, mo):
+    query_table = mo.ui.dropdown(options=TABLE_LIST, value="${defaultTable}", label="Table")
+    limit_input = mo.ui.number(value=100, start=1, stop=10000, label="Limit")
+    return limit_input, query_table,
 
 @app.cell
-def __(conn, mo, pd, sql_input):
-    # Execute SQL
-    try:
-        result = pd.read_sql_query(sql_input.value, conn)
-        mo.vstack([
-            mo.md(f"**{len(result)} rows returned**"),
-            mo.ui.table(result, page_size=50, selection=None)
-        ])
-    except Exception as e:
-        mo.callout(f"**SQL Error:** {e}", kind="danger")
+def _(conn, limit_input, pd, query_table):
+    # Get columns for selected table
+    _cols = pd.read_sql_query(f'PRAGMA table_info("{query_table.value}")', conn)['name'].tolist()
+    _col_options = ['*'] + _cols
+    return _col_options,
+
+@app.cell
+def _(_col_options, mo):
+    col_select = mo.ui.multiselect(options=_col_options, value=['*'], label="Columns")
+    return col_select,
+
+@app.cell
+def _(col_select, limit_input, mo, query_table):
+    # Build query from selections
+    _cols = ', '.join(col_select.value) if col_select.value else '*'
+    _query = f"SELECT {_cols} FROM {query_table.value} LIMIT {limit_input.value}"
+    mo.hstack([query_table, col_select, limit_input], justify="start")
+    return _query,
+
+@app.cell
+def _(_query, mo):
+    sql_text = mo.ui.text_area(value=_query, label="SQL (edit to customize)", full_width=True, rows=2)
+    return sql_text,
+
+@app.cell
+def _(sql_text):
+    sql_text
+    return
+
+@app.cell
+def _(mo):
+    run_button = mo.ui.button(label="Run Query", kind="success")
+    return run_button,
+
+@app.cell
+def _(run_button):
+    run_button
+    return
+
+@app.cell
+def _(conn, mo, pd, run_button, sql_text):
+    run_button
+    if sql_text.value:
+        try:
+            _result = pd.read_sql_query(sql_text.value, conn)
+            _out = mo.vstack([
+                mo.md(f"**{len(_result):,} rows**"),
+                mo.ui.dataframe(_result)
+            ])
+        except Exception as e:
+            _out = mo.callout(f"Error: {e}", kind="danger")
+    else:
+        _out = mo.md("Enter a query above")
+    _out
     return
 
 if __name__ == "__main__":
@@ -258,11 +247,11 @@ Options:
         dbPath = datasets[0].sqlitePath
       }
 
-      // Get table list from database
+      // Get table list from database (exclude internal tables starting with _)
       const { Database } = await import('bun:sqlite')
       const db = new Database(dbPath, { readonly: true })
       const tables = db
-        .query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_%'")
+        .query("SELECT name FROM sqlite_master WHERE type='table' AND substr(name, 1, 1) != '_'")
         .all() as Array<{ name: string }>
       db.close()
 
