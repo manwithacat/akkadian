@@ -2,11 +2,11 @@
  * Download model from GCS
  */
 
+import { basename, join } from 'path'
 import { z } from 'zod'
-import { join, basename } from 'path'
+import { download, getSize, listFiles, rsync } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { download, rsync, listFiles, getSize } from '../../lib/gcs'
 
 const DownloadModelArgs = z.object({
   path: z.string().describe('GCS path (gs://bucket/path)'),
@@ -40,7 +40,9 @@ Options:
 
     // Validate GCS path
     if (!gcsPath.startsWith('gs://')) {
-      return error('INVALID_PATH', 'GCS path must start with gs://', 'Example: gs://bucket/path/to/model', { path: gcsPath })
+      return error('INVALID_PATH', 'GCS path must start with gs://', 'Example: gs://bucket/path/to/model', {
+        path: gcsPath,
+      })
     }
 
     // Determine output directory
@@ -66,12 +68,12 @@ Options:
     }
 
     // Get size info
-    progress({ step: 'size', message: 'Checking model size...' }, ctx.output)
+    logStep({ step: 'size', message: 'Checking model size...' }, ctx.output)
     const size = await getSize(gcsPath)
     const sizeStr = size ? `${(size / 1024 / 1024 / 1024).toFixed(2)} GB` : 'unknown'
 
     // List files
-    progress({ step: 'list', message: 'Listing files...' }, ctx.output)
+    logStep({ step: 'list', message: 'Listing files...' }, ctx.output)
     const files = await listFiles(gcsPath)
 
     if (files.length === 0) {

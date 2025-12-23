@@ -3,12 +3,12 @@
  */
 
 import { z } from 'zod'
+import { downloadKernelOutput, getKernelStatus, waitForKernel } from '../../lib/kaggle'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { getKernelStatus, waitForKernel, downloadKernelOutput } from '../../lib/kaggle'
 
 const RunKernelArgs = z.object({
-  path: z.string().describe('Kernel slug (user/kernel-name)'),  // 'path' is first positional arg
+  path: z.string().describe('Kernel slug (user/kernel-name)'), // 'path' is first positional arg
   wait: z.boolean().default(false).describe('Wait for completion'),
   interval: z.number().default(30).describe('Poll interval in seconds'),
   timeout: z.number().default(7200).describe('Timeout in seconds'),
@@ -42,12 +42,17 @@ Options:
     const { path: slug, wait, interval, timeout, download, output: outputDir } = args
 
     if (!slug.includes('/')) {
-      return error('INVALID_SLUG', 'Kernel slug must be in format "user/kernel-name"', 'Example: manwithacat/nllb-train', {
-        slug,
-      })
+      return error(
+        'INVALID_SLUG',
+        'Kernel slug must be in format "user/kernel-name"',
+        'Example: manwithacat/nllb-train',
+        {
+          slug,
+        }
+      )
     }
 
-    progress({ step: 'status', message: `Checking kernel status: ${slug}...` }, ctx.output)
+    logStep({ step: 'status', message: `Checking kernel status: ${slug}...` }, ctx.output)
 
     try {
       const initialStatus = await getKernelStatus(slug)
@@ -55,22 +60,26 @@ Options:
       if (!wait) {
         return success({
           slug,
-          status: initialStatus.status,
+          status: initialStatus.logStep,
           failureMessage: initialStatus.failureMessage,
         })
       }
 
       // Wait for completion
-      if (initialStatus.status === 'complete' || initialStatus.status === 'error' || initialStatus.status === 'cancelled') {
+      if (
+        initialStatus.status === 'complete' ||
+        initialStatus.status === 'error' ||
+        initialStatus.status === 'cancelled'
+      ) {
         if (download && initialStatus.status === 'complete') {
           const outDir = outputDir || './output'
-          progress({ step: 'download', message: `Downloading output to ${outDir}...` }, ctx.output)
+          logStep({ step: 'download', message: `Downloading output to ${outDir}...` }, ctx.output)
           await downloadKernelOutput(slug, outDir)
         }
 
         return success({
           slug,
-          status: initialStatus.status,
+          status: initialStatus.logStep,
           failureMessage: initialStatus.failureMessage,
           downloaded: download && initialStatus.status === 'complete',
         })
@@ -88,26 +97,31 @@ Options:
         interval: interval * 1000,
         timeout: timeout * 1000,
         onStatus: (status) => {
-          progress({ step: 'poll', message: `Status: ${status.status}`, current: 0, total: 1 }, ctx.output)
+          logStep({ step: 'poll', message: `Status: ${status.status}`, current: 0, total: 1 }, ctx.output)
         },
       })
 
       if (download && finalStatus.status === 'complete') {
         const outDir = outputDir || './output'
-        progress({ step: 'download', message: `Downloading output to ${outDir}...` }, ctx.output)
+        logStep({ step: 'download', message: `Downloading output to ${outDir}...` }, ctx.output)
         await downloadKernelOutput(slug, outDir)
       }
 
       if (finalStatus.status === 'error') {
-        return error('KERNEL_FAILED', `Kernel failed: ${finalStatus.failureMessage || 'Unknown error'}`, 'Check kernel logs', {
-          slug,
-          status: finalStatus,
-        })
+        return error(
+          'KERNEL_FAILED',
+          `Kernel failed: ${finalStatus.failureMessage || 'Unknown error'}`,
+          'Check kernel logs',
+          {
+            slug,
+            status: finalStatus,
+          }
+        )
       }
 
       return success({
         slug,
-        status: finalStatus.status,
+        status: finalStatus.logStep,
         failureMessage: finalStatus.failureMessage,
         downloaded: download && finalStatus.status === 'complete',
       })

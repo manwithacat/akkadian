@@ -2,10 +2,10 @@
  * Sync MLFlow runs from GCS
  */
 
-import { z } from 'zod'
 import { join } from 'path'
+import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
 
 const SyncArgs = z.object({
   bucket: z.string().default('akkadian-models').describe('GCS bucket name'),
@@ -72,10 +72,15 @@ Options:
         pythonArgs.push('--download-artifacts')
       }
     } else if (!list) {
-      return error('NO_EXPERIMENT', 'Specify --experiment or use --list', 'Example: akk mlflow sync --experiment nllb-akkadian', {})
+      return error(
+        'NO_EXPERIMENT',
+        'Specify --experiment or use --list',
+        'Example: akk mlflow sync --experiment nllb-akkadian',
+        {}
+      )
     }
 
-    progress({ step: 'sync', message: `Syncing from gs://${bucket}...` }, ctx.output)
+    logStep({ step: 'sync', message: `Syncing from gs://${bucket}...` }, ctx.output)
 
     // Run sync script
     const proc = Bun.spawn(pythonArgs, {

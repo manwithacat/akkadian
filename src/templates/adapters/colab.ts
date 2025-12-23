@@ -5,8 +5,8 @@
  * Supports cross-account GCS access (Colab user != bucket owner).
  */
 
-import type { PlatformAdapter, TemplateContext, PlatformPaths } from '../../types/template'
 import type { PlatformId } from '../../types/platform'
+import type { PlatformAdapter, PlatformPaths, TemplateContext } from '../../types/template'
 import { getRecommendedBatchSize } from '../../types/template'
 
 export class ColabAdapter implements PlatformAdapter {
@@ -89,9 +89,10 @@ print(f"GCS Bucket: {GCS_BUCKET}")
 print(f"Local input: {INPUT_PATH}")
 print(f"Local output: {OUTPUT_PATH}")
 print(f"Platform: ${gpuType}")
-`.replace(/\$\{bucket\}/g, bucket)
-  .replace(/\$\{project\}/g, project)
-  .replace(/\$\{gpuType\}/g, gpuType)
+`
+      .replace(/\$\{bucket\}/g, bucket)
+      .replace(/\$\{project\}/g, project)
+      .replace(/\$\{gpuType\}/g, gpuType)
   }
 
   generateDataLoading(ctx: TemplateContext): string {
@@ -198,7 +199,7 @@ def update_status(phase, progress=None, metrics=None):
     }
     status_path = f"{OUTPUT_PATH}/status.json"
     with open(status_path, "w") as f:
-        json.dump(status, f, indent=2)
+        json.dump(logStep, f, indent=2)
     !gsutil cp {status_path} {GCS_OUTPUT}/status.json
 `
   }
@@ -258,7 +259,7 @@ def save_training_log(history, filename="training_log.json", upload_to_gcs=True)
 
 def finalize_run(status="completed"):
     """Mark run as complete and upload final status."""
-    update_status(status, progress=100)
+    update_status(logStep, progress=100)
     print(f"Run finalized with status: {status}")
 `
   }

@@ -2,10 +2,10 @@
  * Analyze training results with LLM support
  */
 
-import { z } from 'zod'
 import { join } from 'path'
+import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
 
 const AnalyzeArgs = z.object({
   run: z.string().optional().describe('Run name to analyze'),
@@ -73,11 +73,15 @@ function analyzeMetrics(metrics: TrainingMetrics, comparison?: TrainingMetrics):
   // BLEU analysis
   if (metrics.bleu !== undefined) {
     if (metrics.bleu < 10) {
-      recommendations.push('BLEU < 10 is very low. Consider: more training data, longer training, different model architecture')
+      recommendations.push(
+        'BLEU < 10 is very low. Consider: more training data, longer training, different model architecture'
+      )
     } else if (metrics.bleu < 15) {
       recommendations.push('BLEU 10-15 is below baseline. Try: learning rate tuning, more epochs, data augmentation')
     } else if (metrics.bleu < 20) {
-      recommendations.push('BLEU 15-20 is approaching baseline. Consider: fine-tuning hyperparameters, ensemble methods')
+      recommendations.push(
+        'BLEU 15-20 is approaching baseline. Consider: fine-tuning hyperparameters, ensemble methods'
+      )
     } else if (metrics.bleu < 25) {
       recommendations.push('BLEU 20-25 is competitive. Focus on: inference optimization, domain-specific tuning')
     } else {
@@ -86,10 +90,13 @@ function analyzeMetrics(metrics: TrainingMetrics, comparison?: TrainingMetrics):
 
     if (comparison?.bleu !== undefined) {
       const delta = metrics.bleu - comparison.bleu
-      improvements['bleu'] = `${delta >= 0 ? '+' : ''}${delta.toFixed(2)} (${((delta / comparison.bleu) * 100).toFixed(1)}%)`
+      improvements['bleu'] =
+        `${delta >= 0 ? '+' : ''}${delta.toFixed(2)} (${((delta / comparison.bleu) * 100).toFixed(1)}%)`
 
       if (delta < 0) {
-        recommendations.push(`BLEU decreased by ${Math.abs(delta).toFixed(2)}. Review changes that may have caused regression.`)
+        recommendations.push(
+          `BLEU decreased by ${Math.abs(delta).toFixed(2)}. Review changes that may have caused regression.`
+        )
       } else if (delta > 0) {
         recommendations.push(`BLEU improved by ${delta.toFixed(2)}! Document what worked.`)
       }
@@ -116,7 +123,9 @@ function analyzeMetrics(metrics: TrainingMetrics, comparison?: TrainingMetrics):
   if (metrics.training_time_hours !== undefined && metrics.epochs !== undefined) {
     const hoursPerEpoch = metrics.training_time_hours / metrics.epochs
     if (hoursPerEpoch > 1) {
-      recommendations.push(`Training is slow (${hoursPerEpoch.toFixed(1)}h/epoch). Consider: gradient accumulation, mixed precision, smaller batch size`)
+      recommendations.push(
+        `Training is slow (${hoursPerEpoch.toFixed(1)}h/epoch). Consider: gradient accumulation, mixed precision, smaller batch size`
+      )
     }
   }
 
@@ -154,11 +163,13 @@ function analyzeMetrics(metrics: TrainingMetrics, comparison?: TrainingMetrics):
   return {
     summary,
     metrics,
-    comparison: comparison ? {
-      baseline: comparison,
-      current: metrics,
-      improvements,
-    } : undefined,
+    comparison: comparison
+      ? {
+          baseline: comparison,
+          current: metrics,
+          improvements,
+        }
+      : undefined,
     recommendations,
     nextSteps,
   }
@@ -203,10 +214,10 @@ Options:
 
     // Check if path exists
     const metricsFile = Bun.file(join(artifactsPath, 'metrics.json'))
-    if (!await metricsFile.exists()) {
+    if (!(await metricsFile.exists())) {
       // Try eval_results.json
       const evalFile = Bun.file(join(artifactsPath, 'eval_results.json'))
-      if (!await evalFile.exists()) {
+      if (!(await evalFile.exists())) {
         return error(
           'METRICS_NOT_FOUND',
           `No metrics found in: ${artifactsPath}`,
@@ -216,7 +227,7 @@ Options:
       }
     }
 
-    progress({ step: 'load', message: 'Loading metrics...' }, ctx.output)
+    logStep({ step: 'load', message: 'Loading metrics...' }, ctx.output)
 
     // Load metrics
     const metrics = await loadMetrics(artifactsPath)
@@ -234,16 +245,14 @@ Options:
       }
     }
 
-    progress({ step: 'analyze', message: 'Analyzing results...' }, ctx.output)
+    logStep({ step: 'analyze', message: 'Analyzing results...' }, ctx.output)
 
     // Analyze
     const analysis = analyzeMetrics(metrics, comparisonMetrics || undefined)
 
     // Output to file if requested
     if (args['output-file']) {
-      const outputPath = args['output-file'].startsWith('/')
-        ? args['output-file']
-        : join(ctx.cwd, args['output-file'])
+      const outputPath = args['output-file'].startsWith('/') ? args['output-file'] : join(ctx.cwd, args['output-file'])
 
       let markdown = `# Training Analysis: ${args.run || artifactsPath}\n\n`
       markdown += `Generated: ${new Date().toISOString()}\n\n`

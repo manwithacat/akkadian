@@ -2,10 +2,10 @@
  * Local evaluation command
  */
 
-import { z } from 'zod'
 import { join } from 'path'
+import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
 
 const EvaluateArgs = z.object({
   model: z.string().optional().describe('Path to model directory'),
@@ -60,7 +60,7 @@ Options:
     }
 
     // Check splits directory
-    const splitsExists = await Bun.spawn(['test', '-d', splitsDir]).exited === 0
+    const splitsExists = (await Bun.spawn(['test', '-d', splitsDir]).exited) === 0
     if (!splitsExists) {
       return error(
         'SPLITS_NOT_FOUND',
@@ -70,15 +70,17 @@ Options:
       )
     }
 
-    progress({ step: 'evaluate', message: 'Running k-fold evaluation...' }, ctx.output)
+    logStep({ step: 'evaluate', message: 'Running k-fold evaluation...' }, ctx.output)
 
     // Build command
     const pythonArgs = [
       'python3',
       evalScript,
-      '--splits-dir', splitsDir,
-      '--n-folds', String(args.folds),
-      '--test-dummy',  // For now, use dummy predictor
+      '--splits-dir',
+      splitsDir,
+      '--n-folds',
+      String(args.folds),
+      '--test-dummy', // For now, use dummy predictor
     ]
 
     if (outputPath) {
@@ -96,12 +98,11 @@ Options:
     const exitCode = await proc.exited
 
     if (exitCode !== 0) {
-      return error(
-        'EVAL_FAILED',
-        `Evaluation failed: ${stderr || stdout}`,
-        'Check model path and splits directory',
-        { exitCode, stderr, stdout }
-      )
+      return error('EVAL_FAILED', `Evaluation failed: ${stderr || stdout}`, 'Check model path and splits directory', {
+        exitCode,
+        stderr,
+        stdout,
+      })
     }
 
     // Parse results
@@ -138,7 +139,7 @@ Options:
       folds: args.folds,
       output: outputPath,
       metrics,
-      log: stdout.trim().split('\n').slice(-10),  // Last 10 lines
+      log: stdout.trim().split('\n').slice(-10), // Last 10 lines
       results,
     })
   },

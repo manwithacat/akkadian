@@ -2,13 +2,13 @@
  * Download competition data from Kaggle
  */
 
-import { z } from 'zod'
-import { join } from 'path'
 import { mkdir } from 'fs/promises'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { csvToSqlite, computeChecksum } from '../../lib/sqlite'
+import { join } from 'path'
+import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
+import { error, logStep, success } from '../../lib/output'
+import { computeChecksum, csvToSqlite } from '../../lib/sqlite'
+import type { CommandDefinition } from '../../types/commands'
 
 const DownloadArgs = z.object({
   competition: z.string().optional().describe('Competition slug (default: from akk.toml)'),
@@ -71,38 +71,37 @@ Options:
     // Check if already downloaded
     const kaggleFiles = await Bun.file(join(kaggleDir, 'train.csv')).exists()
     if (kaggleFiles && !force) {
-      return error(
-        'ALREADY_EXISTS',
-        'Competition data already downloaded',
-        'Use --force to overwrite',
-        { path: kaggleDir }
-      )
+      return error('ALREADY_EXISTS', 'Competition data already downloaded', 'Use --force to overwrite', {
+        path: kaggleDir,
+      })
     }
 
     // Download from Kaggle
-    progress({ step: 'download', message: `Downloading ${competition}...` }, ctx.output)
+    logStep({ step: 'download', message: `Downloading ${competition}...` }, ctx.output)
 
-    const downloadProc = Bun.spawn(
-      ['kaggle', 'competitions', 'download', '-c', competition, '-p', kaggleDir],
-      {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      }
-    )
+    const downloadProc = Bun.spawn(['kaggle', 'competitions', 'download', '-c', competition, '-p', kaggleDir], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
 
     const downloadStderr = await new Response(downloadProc.stderr).text()
     const downloadExit = await downloadProc.exited
 
     if (downloadExit !== 0) {
-      return error('DOWNLOAD_FAILED', `Failed to download: ${downloadStderr}`, 'Check kaggle credentials and competition slug', {
-        competition,
-      })
+      return error(
+        'DOWNLOAD_FAILED',
+        `Failed to download: ${downloadStderr}`,
+        'Check kaggle credentials and competition slug',
+        {
+          competition,
+        }
+      )
     }
 
     // Unzip if needed
     const zipFile = Bun.file(zipPath)
     if (await zipFile.exists()) {
-      progress({ step: 'extract', message: 'Extracting files...' }, ctx.output)
+      logStep({ step: 'extract', message: 'Extracting files...' }, ctx.output)
 
       const unzipProc = Bun.spawn(['unzip', '-o', zipPath, '-d', kaggleDir], {
         stdout: 'pipe',
@@ -128,14 +127,14 @@ Options:
       })
     }
 
-    progress({ step: 'found', message: `Found ${csvFiles.length} CSV files: ${csvFiles.join(', ')}` }, ctx.output)
+    logStep({ step: 'found', message: `Found ${csvFiles.length} CSV files: ${csvFiles.join(', ')}` }, ctx.output)
 
     // Convert to SQLite
     let sqlitePath: string | undefined
     let totalRows = 0
 
     if (!skipSqlite) {
-      progress({ step: 'convert', message: 'Converting to SQLite...' }, ctx.output)
+      logStep({ step: 'convert', message: 'Converting to SQLite...' }, ctx.output)
 
       sqlitePath = join(dataDir, `${name}_v1.db`)
 
@@ -148,7 +147,7 @@ Options:
           const tableName = csvFile.replace(/\.csv$/i, '')
           const csvPath = join(kaggleDir, csvFile)
 
-          progress({ step: 'table', message: `  Converting ${csvFile} -> ${tableName}...` }, ctx.output)
+          logStep({ step: 'table', message: `  Converting ${csvFile} -> ${tableName}...` }, ctx.output)
 
           const result = await csvToSqlite({
             inputPath: csvPath,
@@ -167,7 +166,7 @@ Options:
     let datasetId: string | undefined
 
     if (!skipRegister && sqlitePath) {
-      progress({ step: 'register', message: 'Registering dataset...' }, ctx.output)
+      logStep({ step: 'register', message: 'Registering dataset...' }, ctx.output)
 
       const registry = new DatasetRegistry(join(dataDir, 'registry.db'))
 
@@ -191,10 +190,7 @@ Options:
 
         datasetId = dataset.id
 
-        progress(
-          { step: 'registered', message: `Registered as ${name} v${dataset.version}` },
-          ctx.output
-        )
+        progress({ step: 'registered', message: `Registered as ${name} v${dataset.version}` }, ctx.output)
       } finally {
         registry.close()
       }

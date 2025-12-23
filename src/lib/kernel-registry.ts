@@ -6,18 +6,9 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { join, basename } from 'path'
-import type {
-  CompetitionConfig,
-  KernelConfig,
-  KernelVersionRecord,
-  VersioningStrategy,
-} from '../types/competition'
-import {
-  findCompetitionConfig,
-  loadCompetitionConfig,
-  saveCompetitionConfig,
-} from './config'
+import { basename, join } from 'path'
+import type { CompetitionConfig, KernelConfig, KernelVersionRecord, VersioningStrategy } from '../types/competition'
+import { findCompetitionConfig, loadCompetitionConfig, saveCompetitionConfig } from './config'
 
 /**
  * Options for generating a versioned kernel name
@@ -34,11 +25,11 @@ export interface VersionOptions {
  * Result of registering a new kernel version
  */
 export interface VersionedKernel {
-  kernelId: string        // Full Kaggle kernel ID: username/slug
-  slug: string            // Just the slug part
-  version: number         // Version number
-  baseName: string        // Base name without version
-  timestamp: string       // ISO timestamp
+  kernelId: string // Full Kaggle kernel ID: username/slug
+  slug: string // Just the slug part
+  version: number // Version number
+  baseName: string // Base name without version
+  timestamp: string // ISO timestamp
 }
 
 /**
@@ -64,7 +55,10 @@ export function generateVersionedSlug(
   separator: string = '-'
 ): string {
   // Normalize base name to slug format
-  const baseSlug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const baseSlug = baseName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 
   switch (strategy) {
     case 'timestamp':
@@ -85,10 +79,7 @@ export function generateVersionedSlug(
 /**
  * Get kernel configuration by base name, creating if needed
  */
-export function getOrCreateKernelConfig(
-  config: CompetitionConfig,
-  baseName: string
-): KernelConfig {
+export function getOrCreateKernelConfig(config: CompetitionConfig, baseName: string): KernelConfig {
   const normalizedName = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
   if (config.kernels[normalizedName]) {
@@ -132,9 +123,7 @@ export async function registerKernelVersion(
   }
 
   // Get versioning strategy
-  const strategy = options.strategy ||
-    config.competition.kaggle?.kernel_versioning?.strategy ||
-    'semver'
+  const strategy = options.strategy || config.competition.kaggle?.kernel_versioning?.strategy || 'semver'
 
   const separator = config.competition.kaggle?.kernel_versioning?.prefix_separator || '-'
 
@@ -187,10 +176,7 @@ export async function registerKernelVersion(
 /**
  * Get kernel version history
  */
-export async function getKernelHistory(
-  baseName: string,
-  projectDir?: string
-): Promise<KernelVersionRecord[]> {
+export async function getKernelHistory(baseName: string, projectDir?: string): Promise<KernelVersionRecord[]> {
   const configPath = await findCompetitionConfig(projectDir || process.cwd())
   if (!configPath) {
     return []
@@ -254,15 +240,15 @@ export async function updateKernelVersionStatus(
 /**
  * List all registered kernels with their current versions
  */
-export async function listRegisteredKernels(
-  projectDir?: string
-): Promise<Array<{
-  name: string
-  currentVersion: number
-  strategy?: VersioningStrategy
-  lastRun?: string
-  lastStatus?: string
-}>> {
+export async function listRegisteredKernels(projectDir?: string): Promise<
+  Array<{
+    name: string
+    currentVersion: number
+    strategy?: VersioningStrategy
+    lastRun?: string
+    lastStatus?: string
+  }>
+> {
   const configPath = await findCompetitionConfig(projectDir || process.cwd())
   if (!configPath) {
     return []
@@ -278,7 +264,7 @@ export async function listRegisteredKernels(
     currentVersion: kernel.current_version,
     strategy: kernel.versioning_strategy,
     lastRun: kernel.last_run,
-    lastStatus: kernel.last_status,
+    lastStatus: kernel.last_logStep,
   }))
 }
 

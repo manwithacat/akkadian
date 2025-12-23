@@ -3,9 +3,9 @@
  */
 
 import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 import { getCompetitionSubmissions } from '../../lib/kaggle'
+import { error, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const SubmissionsArgs = z.object({
   competition: z.string().optional().describe('Competition slug (default: from config)'),
@@ -57,16 +57,16 @@ Use --pending to filter for submissions still being scored.
 
       // Filter pending if requested
       if (pending) {
-        subs = subs.filter(s => s.status === 'pending')
+        subs = subs.filter((s) => s.status === 'pending')
       }
 
       // Limit results
       subs = subs.slice(0, limit)
 
       // Format for display
-      const formatted = subs.map(s => ({
+      const formatted = subs.map((s) => ({
         date: s.date,
-        status: s.status,
+        status: s.logStep,
         score: s.publicScore ?? null,
         description: s.description || null,
       }))

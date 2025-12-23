@@ -2,11 +2,11 @@
  * Launch Marimo data wrangler for interactive data exploration
  */
 
-import { z } from 'zod'
 import { join } from 'path'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const WranglerArgs = z.object({
   name: z.string().optional().describe('Dataset name to explore'),
@@ -188,11 +188,7 @@ Options:
   --version   Specific version (requires --name)
   --port      Marimo port (default: 2718)
 `,
-  examples: [
-    'akk data wrangler',
-    'akk data wrangler --name raw',
-    'akk data wrangler --port 8080',
-  ],
+  examples: ['akk data wrangler', 'akk data wrangler --name raw', 'akk data wrangler --port 8080'],
   args: WranglerArgs,
 
   async run(args, ctx) {
@@ -201,12 +197,7 @@ Options:
     // Check marimo is installed
     const installed = await checkMarimoInstalled()
     if (!installed) {
-      return error(
-        'MARIMO_NOT_INSTALLED',
-        'Marimo is not installed',
-        'Install with: pip install marimo',
-        {}
-      )
+      return error('MARIMO_NOT_INSTALLED', 'Marimo is not installed', 'Install with: pip install marimo', {})
     }
 
     // Get registry
@@ -215,12 +206,7 @@ Options:
 
     const registryFile = Bun.file(registryPath)
     if (!(await registryFile.exists())) {
-      return error(
-        'NO_REGISTRY',
-        'No dataset registry found',
-        'Run "akk data download" first',
-        {}
-      )
+      return error('NO_REGISTRY', 'No dataset registry found', 'Run "akk data download" first', {})
     }
 
     const registry = new DatasetRegistry(registryPath)
@@ -230,9 +216,7 @@ Options:
       let dbPath: string
 
       if (name) {
-        const dataset = version
-          ? registry.getVersion(name, version)
-          : registry.getLatestVersion(name)
+        const dataset = version ? registry.getVersion(name, version) : registry.getLatestVersion(name)
 
         if (!dataset) {
           return error('DATASET_NOT_FOUND', `Dataset not found: ${name}`, '', {})
@@ -265,7 +249,7 @@ Options:
       const notebookPath = join(dataDir, '_wrangler.py')
       await Bun.write(notebookPath, notebookContent)
 
-      progress({ step: 'start', message: `Starting Marimo on port ${port}...` }, ctx.output)
+      logStep({ step: 'start', message: `Starting Marimo on port ${port}...` }, ctx.output)
 
       // Launch marimo
       const proc = Bun.spawn(['marimo', 'run', notebookPath, '--port', String(port)], {
@@ -273,7 +257,7 @@ Options:
         stderr: 'inherit',
       })
 
-      progress({ step: 'ready', message: `Marimo running at http://localhost:${port}` }, ctx.output)
+      logStep({ step: 'ready', message: `Marimo running at http://localhost:${port}` }, ctx.output)
 
       const exitCode = await proc.exited
 

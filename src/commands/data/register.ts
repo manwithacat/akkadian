@@ -2,14 +2,14 @@
  * Register a dataset version with lineage tracking
  */
 
-import { z } from 'zod'
-import { join, basename, dirname, isAbsolute } from 'path'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { csvToSqlite, computeChecksum, getTableList, getRowCount } from '../../lib/sqlite'
-import { DatasetRegistry } from '../../lib/data-registry'
-import { parseDatasetRef, type DatasetSourceType } from '../../types/data'
 import { Database } from 'bun:sqlite'
+import { basename, dirname, isAbsolute, join } from 'path'
+import { z } from 'zod'
+import { DatasetRegistry } from '../../lib/data-registry'
+import { error, logStep, success } from '../../lib/output'
+import { computeChecksum, csvToSqlite, getRowCount, getTableList } from '../../lib/sqlite'
+import type { CommandDefinition } from '../../types/commands'
+import { type DatasetSourceType, parseDatasetRef } from '../../types/data'
 
 const RegisterArgs = z.object({
   path: z.string().describe('Path to CSV or SQLite file to register'),
@@ -92,7 +92,10 @@ If a CSV file is provided, it will be automatically converted to SQLite.
         }
 
         parentVersionId = parentDataset.id
-        progress({ step: 'parent', message: `Linked to parent: ${parentDataset.name}:${parentDataset.version}` }, ctx.output)
+        status(
+          { step: 'parent', message: `Linked to parent: ${parentDataset.name}:${parentDataset.version}` },
+          ctx.output
+        )
       }
 
       // Determine if conversion is needed
@@ -102,7 +105,7 @@ If a CSV file is provided, it will be automatically converted to SQLite.
 
       if (ext === 'csv') {
         // Convert CSV to SQLite
-        progress({ step: 'convert', message: 'Converting CSV to SQLite...' }, ctx.output)
+        logStep({ step: 'convert', message: 'Converting CSV to SQLite...' }, ctx.output)
 
         const nextVersion = registry.getNextVersion(name)
         sqlitePath = join(dataDir, `${name}_v${nextVersion}.db`)
@@ -113,13 +116,13 @@ If a CSV file is provided, it will be automatically converted to SQLite.
         })
 
         rowCount = result.totalRows
-        progress({ step: 'converted', message: `Created ${sqlitePath} (${rowCount} rows)` }, ctx.output)
+        logStep({ step: 'converted', message: `Created ${sqlitePath} (${rowCount} rows)` }, ctx.output)
       } else if (ext === 'db' || ext === 'sqlite' || ext === 'sqlite3') {
         // Copy SQLite file to datasets dir
         const nextVersion = registry.getNextVersion(name)
         sqlitePath = join(dataDir, `${name}_v${nextVersion}.db`)
 
-        progress({ step: 'copy', message: 'Copying SQLite file...' }, ctx.output)
+        logStep({ step: 'copy', message: 'Copying SQLite file...' }, ctx.output)
 
         const content = await inputFile.arrayBuffer()
         await Bun.write(sqlitePath, content)
@@ -144,7 +147,7 @@ If a CSV file is provided, it will be automatically converted to SQLite.
       }
 
       // Compute checksum
-      progress({ step: 'checksum', message: 'Computing checksum...' }, ctx.output)
+      logStep({ step: 'checksum', message: 'Computing checksum...' }, ctx.output)
       const checksum = await computeChecksum(sqlitePath)
 
       // Get file size
@@ -158,7 +161,7 @@ If a CSV file is provided, it will be automatically converted to SQLite.
       metadata.originalPath = fullPath
 
       // Register dataset
-      progress({ step: 'register', message: 'Registering dataset...' }, ctx.output)
+      logStep({ step: 'register', message: 'Registering dataset...' }, ctx.output)
 
       const dataset = registry.register({
         name,
@@ -175,7 +178,7 @@ If a CSV file is provided, it will be automatically converted to SQLite.
 
       // Link to MLflow if specified
       if (mlflowRun) {
-        progress({ step: 'mlflow', message: `Linking to MLflow run ${mlflowRun}...` }, ctx.output)
+        logStep({ step: 'mlflow', message: `Linking to MLflow run ${mlflowRun}...` }, ctx.output)
         registry.linkMlflowRun(dataset.id, mlflowRun, linkType)
       }
 

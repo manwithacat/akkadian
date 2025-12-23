@@ -5,9 +5,9 @@
  */
 
 import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import { main as startMcpServer } from '../../mcp/server'
+import type { CommandDefinition } from '../../types/commands'
 
 const McpServeArgs = z.object({
   // No args needed - server runs on stdio
@@ -41,9 +41,7 @@ Token Efficiency:
 - Use "akk help" for minimal command reference
 - Use "akk help <topic>" for specific documentation
 `,
-  examples: [
-    'akk mcp serve',
-  ],
+  examples: ['akk mcp serve'],
   args: McpServeArgs,
 
   async run(_args, ctx) {

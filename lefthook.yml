@@ -1,0 +1,30 @@
+# Lefthook configuration for pre-commit hooks
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: bunx biome check --write {staged_files}
+      stage_fixed: true
+
+    biome-format:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: bunx biome format --write {staged_files}
+      stage_fixed: true
+
+    ruff-lint:
+      glob: "*.py"
+      run: ruff check --fix {staged_files} 2>/dev/null || true
+      stage_fixed: true
+
+    ruff-format:
+      glob: "*.py"
+      run: ruff format {staged_files} 2>/dev/null || true
+      stage_fixed: true
+
+pre-push:
+  commands:
+    build:
+      run: bun run build

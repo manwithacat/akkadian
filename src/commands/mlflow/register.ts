@@ -2,10 +2,10 @@
  * Register a model in MLFlow Model Registry
  */
 
-import { z } from 'zod'
 import { join } from 'path'
+import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
 
 const RegisterArgs = z.object({
   run: z.string().optional().describe('Run name to register model from'),
@@ -70,7 +70,7 @@ for rm in client.search_registered_models():
     for mv in client.search_model_versions(f'name="{rm.name}"'):
         versions.append({
             'version': mv.version,
-            'status': mv.status,
+            'status': mv.logStep,
             'run_id': mv.run_id,
         })
     import json
@@ -152,7 +152,7 @@ print(json.dumps({
 }))
 `
 
-    progress({ step: 'register', message: list ? 'Listing registered models...' : 'Registering model...' }, ctx.output)
+    logStep({ step: 'register', message: list ? 'Listing registered models...' : 'Registering model...' }, ctx.output)
 
     const proc = Bun.spawn(['python3', '-c', pythonCode], {
       stdout: 'pipe',

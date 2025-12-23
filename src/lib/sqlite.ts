@@ -6,7 +6,7 @@
 
 import { Database } from 'bun:sqlite'
 import { createHash } from 'crypto'
-import type { ColumnInfo, TableStats, ConversionResult } from '../types/data'
+import type { ColumnInfo, ConversionResult, TableStats } from '../types/data'
 
 /**
  * Sanitize column name for SQL compatibility
@@ -18,7 +18,7 @@ function sanitizeColumnName(name: string): string {
 
   // Replace problematic characters with underscores
   sanitized = sanitized
-    .replace(/[\[\](){}]/g, '') // Remove brackets/parens
+    .replace(/[[\](){}]/g, '') // Remove brackets/parens
     .replace(/[;:,./\\'"]/g, '_') // Replace punctuation with underscore
     .replace(/\s+/g, '_') // Replace whitespace with underscore
     .replace(/_+/g, '_') // Collapse multiple underscores
@@ -102,7 +102,12 @@ export async function csvToSqlite(options: CsvToSqliteOptions): Promise<Conversi
 
   // Derive table name from filename if not provided
   const tableName =
-    options.tableName || inputPath.split('/').pop()?.replace(/\.csv$/i, '') || 'data'
+    options.tableName ||
+    inputPath
+      .split('/')
+      .pop()
+      ?.replace(/\.csv$/i, '') ||
+    'data'
 
   // Read CSV file
   const file = Bun.file(inputPath)
@@ -128,7 +133,7 @@ export async function csvToSqlite(options: CsvToSqliteOptions): Promise<Conversi
 
   const columns: ColumnInfo[] = headers.map((name, idx) => {
     const originalName = name.trim()
-    let sanitizedName = sanitizeColumnName(originalName)
+    const sanitizedName = sanitizeColumnName(originalName)
 
     // Handle duplicate sanitized names
     let uniqueName = sanitizedName
@@ -282,7 +287,9 @@ export function getTableInfo(
  * Get list of tables in a SQLite database (excludes internal tables starting with _)
  */
 export function getTableList(db: Database): string[] {
-  const result = db.query("SELECT name FROM sqlite_master WHERE type='table' AND substr(name, 1, 1) != '_'").all() as Array<{ name: string }>
+  const result = db
+    .query("SELECT name FROM sqlite_master WHERE type='table' AND substr(name, 1, 1) != '_'")
+    .all() as Array<{ name: string }>
   return result.map((row) => row.name)
 }
 
@@ -297,10 +304,7 @@ export function getRowCount(db: Database, tableName: string): number {
 /**
  * Merge multiple SQLite files into one
  */
-export async function mergeSqliteFiles(
-  inputPaths: string[],
-  outputPath: string
-): Promise<ConversionResult> {
+export async function mergeSqliteFiles(inputPaths: string[], outputPath: string): Promise<ConversionResult> {
   const db = new Database(outputPath, { create: true })
   const tables: TableStats[] = []
   let totalRows = 0
@@ -326,7 +330,14 @@ export async function mergeSqliteFiles(
 
           db.run('BEGIN TRANSACTION')
           for (const row of rows) {
-            const values = columns.map((c) => (row as Record<string, unknown>)[c.name])
+            const values = columns.map((c) => (row as Record<string, unknown>)[c.name]) as (
+              | string
+              | number
+              | bigint
+              | boolean
+              | null
+              | Uint8Array
+            )[]
             insertStmt.run(...values)
           }
           db.run('COMMIT')

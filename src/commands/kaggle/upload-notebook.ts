@@ -2,21 +2,21 @@
  * Upload notebook to Kaggle kernels with versioning support
  */
 
+import { basename, dirname, join } from 'path'
 import { z } from 'zod'
-import { join, basename, dirname } from 'path'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
 import { convertToNotebook, createKernelMetadata, pushKernel } from '../../lib/kaggle'
 import {
-  registerKernelVersion,
-  getOrCreateKernelConfig,
   generateVersionedSlug,
+  getOrCreateKernelConfig,
+  registerKernelVersion,
   type VersionedKernel,
 } from '../../lib/kernel-registry'
-import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
 import { checkServer, logKernelUpload } from '../../lib/mlflow'
-import type { VersioningStrategy, NotebookVersioning, KernelMetadata } from '../../types/competition'
-import { KernelMetadataSchema, generateVersionedKernelId, incrementVersion } from '../../types/competition'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
+import type { KernelMetadata, NotebookVersioning, VersioningStrategy } from '../../types/competition'
+import { generateVersionedKernelId, incrementVersion, KernelMetadataSchema } from '../../types/competition'
 
 const UploadNotebookArgs = z.object({
   path: z.string().describe('Path to .py or .ipynb file'),
@@ -26,7 +26,9 @@ const UploadNotebookArgs = z.object({
   competition: z.string().optional().describe('Competition slug'),
   datasets: z.string().optional().describe('Dataset sources (comma-separated)'),
   models: z.string().optional().describe('Model sources (comma-separated)'),
-  strategy: z.enum(['timestamp', 'semver', 'experiment', 'overwrite']).optional()
+  strategy: z
+    .enum(['timestamp', 'semver', 'experiment', 'overwrite'])
+    .optional()
     .describe('Versioning strategy (default: from config or semver)'),
   noVersion: z.boolean().default(false).describe('Skip versioning, use exact title'),
   model: z.string().optional().describe('Associated model name (for tracking)'),
@@ -121,15 +123,20 @@ Other Options:
 
     // Convert .py to .ipynb if needed
     if (ext === '.py') {
-      progress({ step: 'convert', message: 'Converting .py to .ipynb with jupytext...' }, ctx.output)
+      logStep({ step: 'convert', message: 'Converting .py to .ipynb with jupytext...' }, ctx.output)
 
       ipynbPath = join(dir, `${baseName}.ipynb`)
       const result = await convertToNotebook(fullPath, ipynbPath)
 
       if (!result.success) {
-        return error('CONVERT_FAILED', `Failed to convert to notebook: ${result.message}`, 'Check jupytext is installed', {
-          path: fullPath,
-        })
+        return error(
+          'CONVERT_FAILED',
+          `Failed to convert to notebook: ${result.message}`,
+          'Check jupytext is installed',
+          {
+            path: fullPath,
+          }
+        )
       }
 
       codeFile = `${baseName}.ipynb`
@@ -161,12 +168,7 @@ Other Options:
             const nextVersion = currentVersion + 1
             const separator = compConfig.competition.kaggle?.kernel_versioning?.prefix_separator || '-'
 
-            const previewSlug = generateVersionedSlug(
-              kernelBaseName,
-              nextVersion,
-              versioningStrategy,
-              separator
-            )
+            const previewSlug = generateVersionedSlug(kernelBaseName, nextVersion, versioningStrategy, separator)
 
             return success({
               dryRun: true,
@@ -181,25 +183,31 @@ Other Options:
           }
         }
 
-        progress({ step: 'version', message: 'Registering kernel version...' }, ctx.output)
+        logStep({ step: 'version', message: 'Registering kernel version...' }, ctx.output)
 
         try {
-          const registration = await registerKernelVersion({
-            baseName: kernelBaseName,
-            strategy: versioningStrategy,
-            username,
-            model,
-            notes,
-          }, ctx.cwd)
+          const registration = await registerKernelVersion(
+            {
+              baseName: kernelBaseName,
+              strategy: versioningStrategy,
+              username,
+              model,
+              notes,
+            },
+            ctx.cwd
+          )
 
           versionedKernel = registration.kernel
           kernelTitle = versionedKernel.slug.replace(/-/g, ' ')
         } catch (err) {
           // Fallback to simple versioning if registry fails
-          progress({
-            step: 'version',
-            message: 'Registry unavailable, using simple versioning',
-          }, ctx.output)
+          progress(
+            {
+              step: 'version',
+              message: 'Registry unavailable, using simple versioning',
+            },
+            ctx.output
+          )
           kernelTitle = kernelBaseName
         }
       } else {
@@ -219,7 +227,7 @@ Other Options:
         const parsed = KernelMetadataSchema.safeParse(rawMetadata)
         if (parsed.success) {
           existingMetadata = parsed.data
-          progress({ step: 'metadata', message: `Found metadata: ${existingMetadataPath}` }, ctx.output)
+          logStep({ step: 'metadata', message: `Found metadata: ${existingMetadataPath}` }, ctx.output)
         }
       } catch {
         // Ignore parse errors, will create new metadata
@@ -232,15 +240,19 @@ Other Options:
 
     if (existingMetadata?.versioning && !existingMetadata.versioning.use_kaggle_versioning) {
       // Use metadata versioning - embed version in kernel ID
-      const baseName = existingMetadata.versioning.base_name || existingMetadata.title.replace(/\s*v?\d+\.\d+\.\d+\s*$/i, '').trim()
+      const baseName =
+        existingMetadata.versioning.base_name || existingMetadata.title.replace(/\s*v?\d+\.\d+\.\d+\s*$/i, '').trim()
       const { id, slug } = generateVersionedKernelId(username, baseName, existingMetadata.versioning)
       finalKernelId = id
       finalTitle = slug
 
-      progress({
-        step: 'version',
-        message: `Using metadata versioning: ${id} (v${existingMetadata.versioning.current_version})`,
-      }, ctx.output)
+      progress(
+        {
+          step: 'version',
+          message: `Using metadata versioning: ${id} (v${existingMetadata.versioning.current_version})`,
+        },
+        ctx.output
+      )
     } else if (versionedKernel) {
       // Use registry versioning
       finalKernelId = versionedKernel.kernelId
@@ -253,16 +265,15 @@ Other Options:
 
     // Create metadata using determined kernel ID
     // Priority for competition: command arg > existing metadata > config
-    const competitionSlug = competition
-      || existingMetadata?.competition_sources?.[0]
-      || config?.kaggle?.competition
+    const competitionSlug = competition || existingMetadata?.competition_sources?.[0] || config?.kaggle?.competition
 
     // Priority for internet: command arg > existing metadata > config > default true
-    const effectiveInternet = internetArg !== undefined
-      ? internetArg
-      : existingMetadata?.enable_internet !== undefined
-        ? existingMetadata.enable_internet
-        : config?.kaggle?.enable_internet ?? true
+    const effectiveInternet =
+      internetArg !== undefined
+        ? internetArg
+        : existingMetadata?.enable_internet !== undefined
+          ? existingMetadata.enable_internet
+          : (config?.kaggle?.enable_internet ?? true)
 
     const metadata = createKernelMetadata({
       username,
@@ -284,15 +295,20 @@ Other Options:
     const metadataPath = join(dir, 'kernel-metadata.json')
     await Bun.write(metadataPath, JSON.stringify(metadata, null, 2))
 
-    progress({ step: 'upload', message: `Uploading to Kaggle kernels...` }, ctx.output)
+    logStep({ step: 'upload', message: `Uploading to Kaggle kernels...` }, ctx.output)
 
     // Push to Kaggle
     const result = await pushKernel(dir)
 
     if (!result.success) {
-      return error('UPLOAD_FAILED', `Failed to upload kernel: ${result.message}`, 'Check kaggle credentials and API quota', {
-        metadata,
-      })
+      return error(
+        'UPLOAD_FAILED',
+        `Failed to upload kernel: ${result.message}`,
+        'Check kaggle credentials and API quota',
+        {
+          metadata,
+        }
+      )
     }
 
     // Auto-increment version in metadata file after successful upload
@@ -309,10 +325,13 @@ Other Options:
       }
 
       await Bun.write(existingMetadataPath, JSON.stringify(updatedMetadata, null, 2))
-      progress({
-        step: 'version',
-        message: `Auto-incremented version: ${currentVersion} -> ${nextVersion}`,
-      }, ctx.output)
+      progress(
+        {
+          step: 'version',
+          message: `Auto-incremented version: ${currentVersion} -> ${nextVersion}`,
+        },
+        ctx.output
+      )
     }
 
     // Build response with version info
@@ -335,10 +354,10 @@ Other Options:
         timestamp: versionedKernel.timestamp,
       }
       if (model) {
-        response.versioning = { ...response.versioning as object, model }
+        response.versioning = { ...(response.versioning as object), model }
       }
       if (notes) {
-        response.versioning = { ...response.versioning as object, notes }
+        response.versioning = { ...(response.versioning as object), notes }
       }
 
       // Check for competition config to see if MLflow tracking is enabled
@@ -353,7 +372,7 @@ Other Options:
           const mlflowRunning = await checkServer(mlflowPort)
 
           if (mlflowRunning) {
-            progress({ step: 'mlflow', message: 'Logging kernel to MLflow...' }, ctx.output)
+            logStep({ step: 'mlflow', message: 'Logging kernel to MLflow...' }, ctx.output)
 
             const mlflowRun = await logKernelUpload(mlflowPort, {
               kernelId: versionedKernel.kernelId,

@@ -2,13 +2,13 @@
  * Retrieve and display Kaggle kernel logs
  */
 
-import { z } from 'zod'
-import { join } from 'path'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { join } from 'path'
+import { z } from 'zod'
 import { downloadKernelOutput, getKernelStatus } from '../../lib/kaggle'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 interface LogEntry {
   stream_name: 'stdout' | 'stderr'
@@ -60,7 +60,7 @@ Options:
     }
 
     // Check kernel status first
-    progress({ step: 'status', message: `Checking kernel: ${slug}...` }, ctx.output)
+    logStep({ step: 'status', message: `Checking kernel: ${slug}...` }, ctx.output)
 
     try {
       const status = await getKernelStatus(slug)
@@ -69,7 +69,7 @@ Options:
       const tempDir = await mkdtemp(join(tmpdir(), 'akk-logs-'))
 
       try {
-        progress({ step: 'download', message: 'Downloading logs...' }, ctx.output)
+        logStep({ step: 'download', message: 'Downloading logs...' }, ctx.output)
 
         const result = await downloadKernelOutput(slug, tempDir)
 
@@ -105,7 +105,7 @@ Options:
           }
           return success({
             slug,
-            status: status.status,
+            status: status.logStep,
             format: 'raw',
             content: logContent,
             saved: save || null,
@@ -124,8 +124,8 @@ Options:
             .replace(/^\[/, '')
             .replace(/\]$/, '')
             .split('\n')
-            .filter(line => line.trim() && line.trim() !== ',')
-            .map(line => line.replace(/^,/, '').replace(/,$/, ''))
+            .filter((line) => line.trim() && line.trim() !== ',')
+            .map((line) => line.replace(/^,/, '').replace(/,$/, ''))
 
           for (const line of cleaned) {
             try {
@@ -138,7 +138,7 @@ Options:
 
         // Filter by stream
         if (stream !== 'all') {
-          entries = entries.filter(e => e.stream_name === stream)
+          entries = entries.filter((e) => e.stream_name === stream)
         }
 
         // Filter for errors if requested
@@ -156,9 +156,7 @@ Options:
             /ImportError/,
             /ModuleNotFoundError/,
           ]
-          entries = entries.filter(e =>
-            errorPatterns.some(pattern => pattern.test(e.data))
-          )
+          entries = entries.filter((e) => errorPatterns.some((pattern) => pattern.test(e.data)))
         }
 
         // Apply tail limit
@@ -167,7 +165,7 @@ Options:
         }
 
         // Format output
-        const lines = entries.map(e => e.data.replace(/\n$/, ''))
+        const lines = entries.map((e) => e.data.replace(/\n$/, ''))
         const output = lines.join('\n')
 
         // Save if requested
@@ -178,11 +176,11 @@ Options:
         // Build summary
         const summary = {
           slug,
-          status: status.status,
+          status: status.logStep,
           totalEntries: entries.length,
           streams: {
-            stdout: entries.filter(e => e.stream_name === 'stdout').length,
-            stderr: entries.filter(e => e.stream_name === 'stderr').length,
+            stdout: entries.filter((e) => e.stream_name === 'stdout').length,
+            stderr: entries.filter((e) => e.stream_name === 'stderr').length,
           },
           filter: stream !== 'all' ? stream : null,
           errorsOnly: errors,
@@ -199,12 +197,9 @@ Options:
         await rm(tempDir, { recursive: true, force: true })
       }
     } catch (err) {
-      return error(
-        'LOGS_ERROR',
-        err instanceof Error ? err.message : String(err),
-        'Check kernel slug is correct',
-        { slug }
-      )
+      return error('LOGS_ERROR', err instanceof Error ? err.message : String(err), 'Check kernel slug is correct', {
+        slug,
+      })
     }
   },
 }

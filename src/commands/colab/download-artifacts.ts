@@ -2,11 +2,11 @@
  * Download training artifacts from GCS
  */
 
-import { z } from 'zod'
 import { join } from 'path'
+import { z } from 'zod'
+import { download, getSize, listFiles, rsync } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { listFiles, download, rsync, getSize } from '../../lib/gcs'
 
 const DownloadArtifactsArgs = z.object({
   run: z.string().describe('Run name to download'),
@@ -68,7 +68,9 @@ Options:
 
     // Determine output directory
     const outputDir = args.output
-      ? (args.output.startsWith('/') ? args.output : join(ctx.cwd, args.output))
+      ? args.output.startsWith('/')
+        ? args.output
+        : join(ctx.cwd, args.output)
       : join(ctx.cwd, 'artifacts', args.run)
 
     // Create output directory
@@ -80,13 +82,13 @@ Options:
 
     // Download model
     if (args.model || args.all) {
-      progress({ step: 'model', message: 'Downloading trained model...' }, ctx.output)
+      logStep({ step: 'model', message: 'Downloading trained model...' }, ctx.output)
 
       const modelPath = `${gcsBase}/output/`
       const modelFiles = await listFiles(modelPath)
 
       if (modelFiles.length > 0) {
-        const modelSize = await getSize(modelPath) || 0
+        const modelSize = (await getSize(modelPath)) || 0
         totalSize += modelSize
 
         const modelDir = join(outputDir, 'model')
@@ -99,11 +101,7 @@ Options:
         }
       } else {
         // Try alternative paths
-        const altPaths = [
-          `${gcsBase}/model/`,
-          `${gcsBase}/trained_model/`,
-          `${gcsBase}/final_model/`,
-        ]
+        const altPaths = [`${gcsBase}/model/`, `${gcsBase}/trained_model/`, `${gcsBase}/final_model/`]
 
         for (const altPath of altPaths) {
           const files = await listFiles(altPath)
@@ -121,7 +119,7 @@ Options:
 
     // Download checkpoints
     if (args.checkpoints || args.all) {
-      progress({ step: 'checkpoints', message: 'Downloading checkpoints...' }, ctx.output)
+      logStep({ step: 'checkpoints', message: 'Downloading checkpoints...' }, ctx.output)
 
       const checkpointPath = `${gcsBase}/checkpoints/`
       const checkpointFiles = await listFiles(checkpointPath)
@@ -131,7 +129,7 @@ Options:
         const result = await rsync(checkpointPath, checkpointDir)
 
         if (result.success) {
-          const numCheckpoints = checkpointFiles.filter(f => f.includes('checkpoint-')).length
+          const numCheckpoints = checkpointFiles.filter((f) => f.includes('checkpoint-')).length
           downloaded.push(`checkpoints (${numCheckpoints})`)
         } else {
           failed.push(`checkpoints: ${result.message}`)
@@ -141,15 +139,9 @@ Options:
 
     // Download metrics and logs
     if (args.metrics || args.all) {
-      progress({ step: 'metrics', message: 'Downloading metrics and logs...' }, ctx.output)
+      logStep({ step: 'metrics', message: 'Downloading metrics and logs...' }, ctx.output)
 
-      const metricFiles = [
-        'metrics.json',
-        'training_log.json',
-        'status.json',
-        'config.json',
-        'eval_results.json',
-      ]
+      const metricFiles = ['metrics.json', 'training_log.json', 'status.json', 'config.json', 'eval_results.json']
 
       for (const filename of metricFiles) {
         const gcsPath = `${gcsBase}/${filename}`
@@ -169,7 +161,7 @@ Options:
 
     // Download everything else if --all
     if (args.all) {
-      progress({ step: 'artifacts', message: 'Downloading all artifacts...' }, ctx.output)
+      logStep({ step: 'artifacts', message: 'Downloading all artifacts...' }, ctx.output)
 
       const result = await rsync(gcsBase + '/', outputDir, { delete: false })
       if (result.success) {
@@ -178,12 +170,9 @@ Options:
     }
 
     if (downloaded.length === 0 && failed.length === 0) {
-      return error(
-        'NO_ARTIFACTS',
-        `No artifacts found for run: ${args.run}`,
-        'Check the run name and experiment',
-        { gcsPath: gcsBase }
-      )
+      return error('NO_ARTIFACTS', `No artifacts found for run: ${args.run}`, 'Check the run name and experiment', {
+        gcsPath: gcsBase,
+      })
     }
 
     // Read metrics if available

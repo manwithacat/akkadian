@@ -2,14 +2,14 @@
  * Download kernel output files
  */
 
-import { z } from 'zod'
 import { join } from 'path'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { z } from 'zod'
 import { downloadKernelOutput, getKernelStatus } from '../../lib/kaggle'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const DownloadOutputArgs = z.object({
-  path: z.string().describe('Kernel slug (user/kernel-name)'),  // 'path' is first positional arg
+  path: z.string().describe('Kernel slug (user/kernel-name)'), // 'path' is first positional arg
   output: z.string().optional().describe('Output directory (default: ./output/{kernel})'),
   force: z.boolean().default(false).describe('Overwrite existing files'),
 })
@@ -34,13 +34,18 @@ Options:
     const { path: slug, output: outputPath, force } = args
 
     if (!slug.includes('/')) {
-      return error('INVALID_SLUG', 'Kernel slug must be in format "user/kernel-name"', 'Example: manwithacat/nllb-train', {
-        slug,
-      })
+      return error(
+        'INVALID_SLUG',
+        'Kernel slug must be in format "user/kernel-name"',
+        'Example: manwithacat/nllb-train',
+        {
+          slug,
+        }
+      )
     }
 
     // Check kernel status first
-    progress({ step: 'status', message: `Checking kernel status: ${slug}...` }, ctx.output)
+    logStep({ step: 'status', message: `Checking kernel status: ${slug}...` }, ctx.output)
 
     try {
       const status = await getKernelStatus(slug)
@@ -50,7 +55,7 @@ Options:
           'KERNEL_NOT_COMPLETE',
           `Kernel status is "${status.status}", not complete`,
           'Wait for kernel to complete or use "akk kaggle run-kernel --wait"',
-          { slug, status }
+          { slug, logStep }
         )
       }
 
@@ -75,7 +80,7 @@ Options:
         }
       }
 
-      progress({ step: 'download', message: `Downloading to ${outDir}...` }, ctx.output)
+      logStep({ step: 'download', message: `Downloading to ${outDir}...` }, ctx.output)
 
       const result = await downloadKernelOutput(slug, outDir)
 

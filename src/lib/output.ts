@@ -2,13 +2,7 @@
  * Output handling for Akkadian CLI
  */
 
-import type {
-  CommandOutput,
-  CommandError,
-  OutputMeta,
-  OutputOptions,
-  ProgressEvent,
-} from '../types/output'
+import type { CommandError, CommandOutput, OutputMeta, OutputOptions, ProgressEvent } from '../types/output'
 
 // ANSI color codes
 const colors = {
@@ -158,7 +152,11 @@ function formatObject(obj: Record<string, unknown>, useColor: boolean): string {
       const paddedKey = key.padEnd(maxKeyLen)
       const formattedValue =
         typeof value === 'object' && value !== null
-          ? '\n' + formatData(value, useColor).split('\n').map((l) => '  ' + l).join('\n')
+          ? '\n' +
+            formatData(value, useColor)
+              .split('\n')
+              .map((l) => '  ' + l)
+              .join('\n')
           : String(value)
       return `${c('cyan', paddedKey, useColor)}  ${formattedValue}`
     })
@@ -174,7 +172,7 @@ export function write<T>(output: CommandOutput<T>, options: OutputOptions): void
 }
 
 /**
- * Write a progress event
+ * Write a progress event (numeric progress bar)
  */
 export function progress(event: ProgressEvent, options: OutputOptions): void {
   if (options.quiet) return
@@ -184,13 +182,36 @@ export function progress(event: ProgressEvent, options: OutputOptions): void {
   } else {
     const pct = Math.round((event.step / event.total) * 100)
     const bar = '█'.repeat(Math.floor(pct / 5)) + '░'.repeat(20 - Math.floor(pct / 5))
-    const msg = options.color
-      ? `${colors.cyan}[${bar}]${colors.reset} ${event.message}`
-      : `[${bar}] ${event.message}`
+    const msg = options.color ? `${colors.cyan}[${bar}]${colors.reset} ${event.message}` : `[${bar}] ${event.message}`
     process.stderr.write(`\r${msg}\x1b[K`)
     if (event.step === event.total) {
       process.stderr.write('\n')
     }
+  }
+}
+
+/**
+ * Step event for named workflow steps
+ */
+export interface StepEvent {
+  step: string
+  message: string
+  details?: Record<string, unknown>
+}
+
+/**
+ * Write a step event (named step update)
+ */
+export function logStep(event: StepEvent, options: OutputOptions): void {
+  if (options.quiet) return
+
+  if (options.format === 'json') {
+    console.log(JSON.stringify(event))
+  } else {
+    const msg = options.color
+      ? `${colors.cyan}[${event.step}]${colors.reset} ${event.message}`
+      : `[${event.step}] ${event.message}`
+    console.log(msg)
   }
 }
 

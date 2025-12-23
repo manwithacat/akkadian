@@ -79,12 +79,12 @@ export async function getKernelStatus(slug: string): Promise<KernelStatus> {
 
   // Map Kaggle status values to our simplified status
   const statusMap: Record<string, KernelStatus['status']> = {
-    'queued': 'queued',
-    'running': 'running',
-    'complete': 'complete',
-    'error': 'error',
-    'cancelled': 'cancelled',
-    'cancelacknowledged': 'cancelled',
+    queued: 'queued',
+    running: 'running',
+    complete: 'complete',
+    error: 'error',
+    cancelled: 'cancelled',
+    cancelacknowledged: 'cancelled',
   }
 
   const status = statusMap[rawStatus] || 'error'
@@ -93,7 +93,7 @@ export async function getKernelStatus(slug: string): Promise<KernelStatus> {
   const failureMatch = stdout.match(/failureMessage:\s*"([^"]+)"/)
 
   return {
-    status,
+    logStep,
     failureMessage: failureMatch?.[1],
   }
 }
@@ -101,7 +101,10 @@ export async function getKernelStatus(slug: string): Promise<KernelStatus> {
 /**
  * Download kernel output files
  */
-export async function downloadKernelOutput(slug: string, outputDir: string): Promise<{ success: boolean; message: string }> {
+export async function downloadKernelOutput(
+  slug: string,
+  outputDir: string
+): Promise<{ success: boolean; message: string }> {
   const { stdout, stderr, exitCode } = await runKaggle(['kernels', 'output', slug, '-p', outputDir])
 
   if (exitCode !== 0) {
@@ -155,7 +158,10 @@ export async function createModel(folder: string): Promise<{ success: boolean; m
 /**
  * Create a new model instance (version)
  */
-export async function createModelInstance(folder: string, notes?: string): Promise<{ success: boolean; message: string }> {
+export async function createModelInstance(
+  folder: string,
+  notes?: string
+): Promise<{ success: boolean; message: string }> {
   const args = ['models', 'instance', 'create', '-p', folder]
   if (notes) {
     args.push('-n', notes)
@@ -173,7 +179,10 @@ export async function createModelInstance(folder: string, notes?: string): Promi
 /**
  * Convert Python script to Jupyter notebook using jupytext
  */
-export async function convertToNotebook(pyPath: string, ipynbPath: string): Promise<{ success: boolean; message: string }> {
+export async function convertToNotebook(
+  pyPath: string,
+  ipynbPath: string
+): Promise<{ success: boolean; message: string }> {
   const proc = Bun.spawn(['jupytext', '--to', 'notebook', '-o', ipynbPath, pyPath], {
     stdout: 'pipe',
     stderr: 'pipe',
@@ -306,7 +315,7 @@ export async function getCompetitionSubmissions(competition: string): Promise<Co
   const submissions: CompetitionSubmission[] = []
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]
-    // CSV format: fileName,date,description,status,publicScore,privateScore
+    // CSV format: fileName,date,description,logStep,publicScore,privateScore
     const parts = parseCSVLine(line)
     if (parts.length >= 4) {
       const rawStatus = parts[3].toLowerCase()
@@ -321,7 +330,7 @@ export async function getCompetitionSubmissions(competition: string): Promise<Co
         fileName: parts[0],
         date: parts[1],
         description: parts[2] || '',
-        status,
+        logStep,
         publicScore: parts[4] ? parseFloat(parts[4]) : undefined,
         privateScore: parts[5] ? parseFloat(parts[5]) : undefined,
       })

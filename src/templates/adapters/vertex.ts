@@ -4,8 +4,8 @@
  * Generates Vertex AI-specific notebook code for training jobs.
  */
 
-import type { PlatformAdapter, TemplateContext, PlatformPaths } from '../../types/template'
 import type { PlatformId } from '../../types/platform'
+import type { PlatformAdapter, PlatformPaths, TemplateContext } from '../../types/template'
 import { getRecommendedBatchSize } from '../../types/template'
 
 export class VertexAdapter implements PlatformAdapter {
@@ -72,9 +72,10 @@ print(f"GCS Bucket: {GCS_BUCKET}")
 print(f"Input path: {INPUT_PATH}")
 print(f"Output path: {OUTPUT_PATH}")
 print(f"Platform: Vertex AI ${gpuType}")
-`.replace(/\$\{bucket\}/g, bucket)
-  .replace(/\$\{project\}/g, project)
-  .replace(/\$\{gpuType\}/g, gpuType)
+`
+      .replace(/\$\{bucket\}/g, bucket)
+      .replace(/\$\{project\}/g, project)
+      .replace(/\$\{gpuType\}/g, gpuType)
   }
 
   generateDataLoading(ctx: TemplateContext): string {
@@ -154,7 +155,7 @@ def update_status(phase, progress=None, metrics=None):
     status_path = f"{OUTPUT_PATH}/status.json"
     os.makedirs(os.path.dirname(status_path), exist_ok=True)
     with open(status_path, "w") as f:
-        json.dump(status, f, indent=2)
+        json.dump(logStep, f, indent=2)
 `
   }
 
@@ -195,7 +196,7 @@ def save_predictions(predictions, filename="submission.csv"):
 
 def finalize_run(status="completed"):
     """Mark run as complete."""
-    update_status(status, progress=100)
+    update_status(logStep, progress=100)
     print(f"Vertex AI run finalized with status: {status}")
 `
   }

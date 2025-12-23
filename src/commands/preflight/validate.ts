@@ -4,19 +4,15 @@
  * Validates notebook structure, syntax, and readiness for operation.
  */
 
-import { z } from 'zod'
 import { existsSync, readFileSync } from 'fs'
 import { basename, extname } from 'path'
+import { z } from 'zod'
+import { getValidationSummary, type ValidationOptions, validateNotebook } from '../../lib/notebook-validator'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
-import { PLATFORMS } from './platforms'
-import type { NotebookContent } from '../../types/template'
-import {
-  validateNotebook,
-  getValidationSummary,
-  type ValidationOptions,
-} from '../../lib/notebook-validator'
 import type { PlatformId } from '../../types/platform'
+import type { NotebookContent } from '../../types/template'
+import { PLATFORMS } from './platforms'
 
 const ValidateArgs = z.object({
   path: z.string().describe('Path to notebook (.ipynb) or script (.py)'),
@@ -98,11 +94,7 @@ Returns a readiness score (0-100) and detailed breakdown.
       const content = readFileSync(args.path, 'utf-8')
       notebook = scriptToNotebook(content)
     } else {
-      return error(
-        'INVALID_FORMAT',
-        `Unsupported file format: ${ext}`,
-        'Provide a .ipynb or .py file'
-      )
+      return error('INVALID_FORMAT', `Unsupported file format: ${ext}`, 'Provide a .ipynb or .py file')
     }
 
     // Run validation
@@ -125,7 +117,7 @@ Returns a readiness score (0-100) and detailed breakdown.
       return success({
         file: basename(args.path),
         platform: platform || 'any',
-        status,
+        logStep,
         ready: result.ready,
         score: result.score,
         valid: result.valid,
@@ -138,7 +130,7 @@ Returns a readiness score (0-100) and detailed breakdown.
     return success({
       file: basename(args.path),
       platform: platform ? PLATFORMS[platform].name : 'Any platform',
-      status,
+      logStep,
       ready: result.ready,
       score: `${result.score}/100`,
       summary: {
@@ -151,15 +143,21 @@ Returns a readiness score (0-100) and detailed breakdown.
           stats.failed > 0 ? 'FAIL' : stats.warnings > 0 ? 'WARN' : 'PASS',
         ])
       ),
-      errors: result.errors.length > 0 ? result.errors.slice(0, 10).map(e => ({
-        code: e.code,
-        message: e.message,
-        suggestion: e.suggestion,
-      })) : undefined,
-      warnings: result.warnings.length > 0 ? result.warnings.slice(0, 5).map(w => ({
-        code: w.code,
-        message: w.message,
-      })) : undefined,
+      errors:
+        result.errors.length > 0
+          ? result.errors.slice(0, 10).map((e) => ({
+              code: e.code,
+              message: e.message,
+              suggestion: e.suggestion,
+            }))
+          : undefined,
+      warnings:
+        result.warnings.length > 0
+          ? result.warnings.slice(0, 5).map((w) => ({
+              code: w.code,
+              message: w.message,
+            }))
+          : undefined,
       moreErrors: result.errors.length > 10 ? `... and ${result.errors.length - 10} more` : undefined,
       moreWarnings: result.warnings.length > 5 ? `... and ${result.warnings.length - 5} more` : undefined,
     })
@@ -184,13 +182,13 @@ function scriptToNotebook(content: string): NotebookContent {
     if (lines[0]?.trim() === '[markdown]') {
       cells.push({
         cell_type: 'markdown',
-        source: lines.slice(1).map((l, i, arr) => i < arr.length - 1 ? l + '\n' : l),
+        source: lines.slice(1).map((l, i, arr) => (i < arr.length - 1 ? l + '\n' : l)),
         metadata: {},
       })
     } else {
       cells.push({
         cell_type: 'code',
-        source: lines.map((l, i, arr) => i < arr.length - 1 ? l + '\n' : l),
+        source: lines.map((l, i, arr) => (i < arr.length - 1 ? l + '\n' : l)),
         metadata: {},
         execution_count: null,
         outputs: [],
@@ -202,7 +200,7 @@ function scriptToNotebook(content: string): NotebookContent {
   if (cells.length === 0) {
     cells.push({
       cell_type: 'code',
-      source: content.split('\n').map((l, i, arr) => i < arr.length - 1 ? l + '\n' : l),
+      source: content.split('\n').map((l, i, arr) => (i < arr.length - 1 ? l + '\n' : l)),
       metadata: {},
       execution_count: null,
       outputs: [],

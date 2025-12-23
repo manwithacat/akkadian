@@ -2,11 +2,11 @@
  * Upload model to Kaggle Models
  */
 
+import { basename, join } from 'path'
 import { z } from 'zod'
-import { join, basename } from 'path'
+import { createModel, createModelInstance, initModel, type ModelMetadata } from '../../lib/kaggle'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { initModel, createModel, createModelInstance, type ModelMetadata } from '../../lib/kaggle'
 
 const UploadModelArgs = z.object({
   path: z.string().describe('Path to model directory'),
@@ -65,7 +65,9 @@ Options:
     const isDir = (await proc.exited) === 0
 
     if (!isDir) {
-      return error('DIR_NOT_FOUND', `Directory not found: ${fullPath}`, 'Provide a valid model directory', { path: fullPath })
+      return error('DIR_NOT_FOUND', `Directory not found: ${fullPath}`, 'Provide a valid model directory', {
+        path: fullPath,
+      })
     }
 
     const modelSlug = slug || basename(fullPath)
@@ -77,7 +79,7 @@ Options:
 
     if (isNew || !metadataExists) {
       // Initialize model metadata
-      progress({ step: 'init', message: 'Initializing model metadata...' }, ctx.output)
+      logStep({ step: 'init', message: 'Initializing model metadata...' }, ctx.output)
 
       const metadata: ModelMetadata = {
         ownerSlug: username,
@@ -91,7 +93,7 @@ Options:
       await Bun.write(metadataPath, JSON.stringify(metadata, null, 2))
 
       if (isNew) {
-        progress({ step: 'create', message: 'Creating new model on Kaggle...' }, ctx.output)
+        logStep({ step: 'create', message: 'Creating new model on Kaggle...' }, ctx.output)
 
         const result = await createModel(fullPath)
         if (!result.success) {
@@ -110,13 +112,18 @@ Options:
     }
 
     // Create new version
-    progress({ step: 'upload', message: 'Creating new model version...' }, ctx.output)
+    logStep({ step: 'upload', message: 'Creating new model version...' }, ctx.output)
 
     const result = await createModelInstance(fullPath, notes)
     if (!result.success) {
-      return error('UPLOAD_FAILED', `Failed to create model version: ${result.message}`, 'Check model exists on Kaggle', {
-        slug: modelSlug,
-      })
+      return error(
+        'UPLOAD_FAILED',
+        `Failed to create model version: ${result.message}`,
+        'Check model exists on Kaggle',
+        {
+          slug: modelSlug,
+        }
+      )
     }
 
     return success({

@@ -1,38 +1,49 @@
-export { version } from './version'
-export { doctor } from './doctor'
-
-// Kaggle commands
-export { uploadNotebook, uploadModel, runKernel, downloadOutput, listKernels, logs, status as kaggleStatus, submissions as kaggleSubmissions } from './kaggle'
-
 // Colab commands
-export { configure, downloadModel, uploadNotebook as colabUploadNotebook, colabStatus, downloadArtifacts, cleanup } from './colab'
-
-// Local commands
-export { evaluate, infer, analyze } from './local'
-
-// MLFlow commands
-export { start, log, sync, register } from './mlflow'
-
-// Workflow commands
-export { train, prepare, importRun, listRuns } from './workflow'
-
-// Vertex AI commands
-export { submit as vertexSubmit, status as vertexStatus, list as vertexList } from './vertex'
-
-// Preflight commands
-export { preflight, platforms as preflightPlatforms, validate as preflightValidate } from './preflight'
-
+export {
+  cleanup,
+  colabStatus,
+  configure,
+  downloadArtifacts,
+  downloadModel,
+  uploadNotebook as colabUploadNotebook,
+} from './colab'
 // Competition commands
 export { competitionInit, competitionStatus } from './competition'
+// Data management commands
+export {
+  download as dataDownload,
+  explore as dataExplore,
+  list as dataList,
+  register as dataRegister,
+  wrangler as dataWrangler,
+} from './data'
+export { doctor } from './doctor'
+// Kaggle commands
+export {
+  downloadOutput,
+  listKernels,
+  logStep as kaggleStatus,
+  logs,
+  runKernel,
+  submissions as kaggleSubmissions,
+  uploadModel,
+  uploadNotebook,
+} from './kaggle'
+// Local commands
+export { analyze, evaluate, infer } from './local'
+// MCP commands
+export { mcpServe } from './mcp'
+// MLFlow commands
+export { log, register, start, sync } from './mlflow'
+// Notebook commands
+export { notebookBuild } from './notebook'
+// Preflight commands
+export { platforms as preflightPlatforms, preflight, validate as preflightValidate } from './preflight'
 
 // Template commands
 export { templateGenerate, templateList } from './template'
-
-// MCP commands
-export { mcpServe } from './mcp'
-
-// Data management commands
-export { download as dataDownload, list as dataList, register as dataRegister, explore as dataExplore, wrangler as dataWrangler } from './data'
-
-// Notebook commands
-export { notebookBuild } from './notebook'
+export { version } from './version'
+// Vertex AI commands
+export { list as vertexList, logStep as vertexStatus, submit as vertexSubmit } from './vertex'
+// Workflow commands
+export { importRun, listRuns, prepare, train } from './workflow'

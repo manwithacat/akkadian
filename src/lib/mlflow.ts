@@ -276,7 +276,7 @@ export async function setRunStatus(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         run_id: runId,
-        status,
+        logStep,
         end_time: status !== 'RUNNING' ? Date.now() : undefined,
       }),
     })
@@ -305,11 +305,7 @@ export async function getRun(port: number, runId: string): Promise<Run | null> {
 /**
  * Set tags on a run
  */
-export async function setRunTags(
-  port: number,
-  runId: string,
-  tags: Record<string, string>
-): Promise<boolean> {
+export async function setRunTags(port: number, runId: string, tags: Record<string, string>): Promise<boolean> {
   try {
     for (const [key, value] of Object.entries(tags)) {
       const response = await fetch(`http://localhost:${port}/api/2.0/mlflow/runs/set-tag`, {
@@ -433,8 +429,7 @@ export async function updateKernelRun(
   try {
     // Map Kaggle status to MLflow status
     const mlflowStatus: 'FINISHED' | 'FAILED' | 'KILLED' =
-      status === 'complete' ? 'FINISHED' :
-      status === 'cancelled' ? 'KILLED' : 'FAILED'
+      status === 'complete' ? 'FINISHED' : status === 'cancelled' ? 'KILLED' : 'FAILED'
 
     // Log metrics if provided
     if (metrics && Object.keys(metrics).length > 0) {
@@ -446,7 +441,7 @@ export async function updateKernelRun(
 
     // Add completion tag
     await setRunTags(port, runId, {
-      kernel_status: status,
+      kernel_status: logStep,
       completion_time: new Date().toISOString(),
     })
 
@@ -466,15 +461,17 @@ export async function listKernelRuns(
     model?: string
     status?: string
   }
-): Promise<Array<{
-  runId: string
-  runName: string
-  kernelId: string
-  version: number
-  status: string
-  timestamp: string
-  model?: string
-}>> {
+): Promise<
+  Array<{
+    runId: string
+    runName: string
+    kernelId: string
+    version: number
+    status: string
+    timestamp: string
+    model?: string
+  }>
+> {
   try {
     // Build filter string
     let filterStr = 'tags.kernel_type = "kaggle"'
@@ -514,20 +511,22 @@ export async function listKernelRuns(
 
     const runs = data.runs || []
 
-    return runs.map((run) => {
-      const params = new Map(run.data?.params?.map((p) => [p.key, p.value]) || [])
-      const tags = new Map(run.data?.tags?.map((t) => [t.key, t.value]) || [])
+    return runs
+      .map((run) => {
+        const params = new Map(run.data?.params?.map((p) => [p.key, p.value]) || [])
+        const tags = new Map(run.data?.tags?.map((t) => [t.key, t.value]) || [])
 
-      return {
-        runId: run.info?.run_id || '',
-        runName: tags.get('mlflow.runName') || '',
-        kernelId: params.get('kernel_id') || '',
-        version: parseInt(params.get('version') || '0', 10),
-        status: run.info?.status || 'UNKNOWN',
-        timestamp: params.get('upload_timestamp') || '',
-        model: params.get('model'),
-      }
-    }).filter((r) => r.runId)
+        return {
+          runId: run.info?.run_id || '',
+          runName: tags.get('mlflow.runName') || '',
+          kernelId: params.get('kernel_id') || '',
+          version: parseInt(params.get('version') || '0', 10),
+          status: run.info?.status || 'UNKNOWN',
+          timestamp: params.get('upload_timestamp') || '',
+          model: params.get('model'),
+        }
+      })
+      .filter((r) => r.runId)
   } catch {
     return []
   }

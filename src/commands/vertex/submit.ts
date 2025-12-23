@@ -3,13 +3,14 @@
  */
 
 import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
 
 // Simple info logging
 function info(msg: string, _output: any): void {
   console.log(msg)
 }
+
 import { spawn } from 'child_process'
 
 const SubmitArgs = z.object({
@@ -86,7 +87,7 @@ Data:
       gpuType = 'NVIDIA_H100_80GB'
     } else {
       machineType = 'a2-ultragpu-1g'
-      gpuType = 'NVIDIA_A100_80GB'  // Not NVIDIA_TESLA_A100
+      gpuType = 'NVIDIA_A100_80GB' // Not NVIDIA_TESLA_A100
     }
 
     info(`Vertex AI Job Submission`, ctx.output)
@@ -106,7 +107,7 @@ Data:
     info(``, ctx.output)
 
     // First, upload the training script
-    progress({ step: 'upload', message: 'Uploading training script to GCS...' }, ctx.output)
+    logStep({ step: 'upload', message: 'Uploading training script to GCS...' }, ctx.output)
 
     const scriptPath = `${process.cwd()}/vertex_ai/trainer/train.py`
     const gcsScriptPath = `gs://${bucket}/vertex/scripts/train.py`
@@ -138,15 +139,18 @@ Data:
 
     // Build the container command
     const containerCommand = [
-      'bash', '-c',
+      'bash',
+      '-c',
       `pip install -q transformers>=4.35.0 datasets>=2.14.0 sacrebleu sentencepiece pandas psutil && ` +
-      `gsutil cp gs://${bucket}/vertex/scripts/train.py /tmp/train.py && ` +
-      `python /tmp/train.py ${trainArgs.join(' ')}`
+        `gsutil cp gs://${bucket}/vertex/scripts/train.py /tmp/train.py && ` +
+        `python /tmp/train.py ${trainArgs.join(' ')}`,
     ].join(' ')
 
     // Build gcloud command
     const gcloudArgs = [
-      'ai', 'custom-jobs', 'create',
+      'ai',
+      'custom-jobs',
+      'create',
       `--project=${project}`,
       `--region=${args.region}`,
       `--display-name=${jobName}`,
@@ -162,7 +166,7 @@ Data:
     }
 
     // Submit job
-    progress({ step: 'submit', message: 'Submitting job to Vertex AI...' }, ctx.output)
+    logStep({ step: 'submit', message: 'Submitting job to Vertex AI...' }, ctx.output)
 
     try {
       const result = await execCommand('gcloud', gcloudArgs)
@@ -195,8 +199,12 @@ async function execCommand(cmd: string, args: string[]): Promise<string> {
     let stdout = ''
     let stderr = ''
 
-    proc.stdout?.on('data', (data) => { stdout += data.toString() })
-    proc.stderr?.on('data', (data) => { stderr += data.toString() })
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString()
+    })
+    proc.stderr?.on('data', (data) => {
+      stderr += data.toString()
+    })
 
     proc.on('close', (code) => {
       if (code === 0) {

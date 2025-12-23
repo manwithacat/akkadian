@@ -3,16 +3,9 @@
  */
 
 import { z } from 'zod'
+import { checkServer, createRun, getOrCreateExperiment, logMetrics, logParams, setRunStatus } from '../../lib/mlflow'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import {
-  checkServer,
-  getOrCreateExperiment,
-  createRun,
-  logParams,
-  logMetrics,
-  setRunStatus,
-} from '../../lib/mlflow'
 
 const LogArgs = z.object({
   experiment: z.string().default('akkadian').describe('Experiment name'),
@@ -39,26 +32,23 @@ Options:
   --port        MLFlow server port (default: 5000)
 `,
   examples: [
-    "akk mlflow log --metrics '{\"bleu\": 23.1, \"loss\": 0.5}'",
-    "akk mlflow log --experiment nllb --run v1 --params '{\"model\": \"nllb-600M\", \"epochs\": 3}'",
-    "akk mlflow log --experiment nllb --run v1 --metrics '{\"bleu\": 23.1}' --params '{\"lr\": 0.0001}'",
+    'akk mlflow log --metrics \'{"bleu": 23.1, "loss": 0.5}\'',
+    'akk mlflow log --experiment nllb --run v1 --params \'{"model": "nllb-600M", "epochs": 3}\'',
+    'akk mlflow log --experiment nllb --run v1 --metrics \'{"bleu": 23.1}\' --params \'{"lr": 0.0001}\'',
   ],
   args: LogArgs,
 
   async run(args, ctx) {
-    const { experiment, run: runName, params, metrics, status, port } = args
+    const { experiment, run: runName, params, metrics, logStep, port } = args
 
     // Check server running
-    progress({ step: 'check', message: 'Checking MLFlow server...' }, ctx.output)
+    logStep({ step: 'check', message: 'Checking MLFlow server...' }, ctx.output)
     const running = await checkServer(port)
 
     if (!running) {
-      return error(
-        'SERVER_NOT_RUNNING',
-        `MLFlow server not running on port ${port}`,
-        'Start with: akk mlflow start',
-        { port }
-      )
+      return error('SERVER_NOT_RUNNING', `MLFlow server not running on port ${port}`, 'Start with: akk mlflow start', {
+        port,
+      })
     }
 
     // Parse JSON inputs
@@ -82,16 +72,11 @@ Options:
     }
 
     if (!params && !metrics) {
-      return error(
-        'NO_DATA',
-        'No params or metrics provided',
-        'Provide --params or --metrics',
-        {}
-      )
+      return error('NO_DATA', 'No params or metrics provided', 'Provide --params or --metrics', {})
     }
 
     // Get or create experiment
-    progress({ step: 'experiment', message: `Getting experiment: ${experiment}...` }, ctx.output)
+    logStep({ step: 'experiment', message: `Getting experiment: ${experiment}...` }, ctx.output)
     const experimentId = await getOrCreateExperiment(port, experiment)
 
     if (!experimentId) {
@@ -101,7 +86,7 @@ Options:
     }
 
     // Create run
-    progress({ step: 'run', message: `Creating run${runName ? `: ${runName}` : ''}...` }, ctx.output)
+    logStep({ step: 'run', message: `Creating run${runName ? `: ${runName}` : ''}...` }, ctx.output)
     const runInfo = await createRun(port, experimentId, runName)
 
     if (!runInfo) {
@@ -110,7 +95,7 @@ Options:
 
     // Log params
     if (Object.keys(parsedParams).length > 0) {
-      progress({ step: 'params', message: 'Logging parameters...' }, ctx.output)
+      logStep({ step: 'params', message: 'Logging parameters...' }, ctx.output)
       const paramsSuccess = await logParams(port, runInfo.runId, parsedParams)
 
       if (!paramsSuccess) {
@@ -120,7 +105,7 @@ Options:
 
     // Log metrics
     if (Object.keys(parsedMetrics).length > 0) {
-      progress({ step: 'metrics', message: 'Logging metrics...' }, ctx.output)
+      logStep({ step: 'metrics', message: 'Logging metrics...' }, ctx.output)
       const metricsSuccess = await logMetrics(port, runInfo.runId, parsedMetrics)
 
       if (!metricsSuccess) {
@@ -144,7 +129,7 @@ Options:
       runName,
       params: parsedParams,
       metrics: parsedMetrics,
-      status,
+      logStep,
       url: `http://localhost:${port}/#/experiments/${experimentId}/runs/${runInfo.runId}`,
     })
   },

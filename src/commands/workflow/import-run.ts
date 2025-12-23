@@ -2,12 +2,12 @@
  * Import a completed GCS run into local MLFlow
  */
 
-import { z } from 'zod'
-import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { join } from 'path'
+import { z } from 'zod'
 import { download, listFiles } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const ImportRunArgs = z.object({
   run: z.string().describe('Run name to import'),
@@ -54,15 +54,14 @@ Examples:
       mkdirSync(artifactsDir, { recursive: true })
     }
 
-    progress({ step: 'download', message: 'Downloading run metadata...' }, ctx.output)
+    logStep({ step: 'download', message: 'Downloading run metadata...' }, ctx.output)
 
     // Download status.json
     const statusPath = join(artifactsDir, 'status.json')
     const statusResult = await download(`${gcsPrefix}/status.json`, statusPath)
 
     if (!statusResult.success) {
-      return error('STATUS_NOT_FOUND', `Run not found or incomplete: ${runName}`,
-        `Check: gsutil ls ${gcsPrefix}/`, {})
+      return error('STATUS_NOT_FOUND', `Run not found or incomplete: ${runName}`, `Check: gsutil ls ${gcsPrefix}/`, {})
     }
 
     // Read status
@@ -75,8 +74,9 @@ Examples:
     }
 
     if (status.phase !== 'completed') {
-      return error('NOT_COMPLETED', `Run not completed (phase: ${status.phase})`,
-        'Wait for training to complete', { status })
+      return error('NOT_COMPLETED', `Run not completed (phase: ${status.phase})`, 'Wait for training to complete', {
+        logStep,
+      })
     }
 
     // Download metrics.json if exists
@@ -90,7 +90,7 @@ Examples:
     // Download model if not skipped
     let modelPath = ''
     if (!args['skip-model']) {
-      progress({ step: 'model', message: 'Downloading model files...' }, ctx.output)
+      logStep({ step: 'model', message: 'Downloading model files...' }, ctx.output)
       modelPath = join(artifactsDir, 'model')
       mkdirSync(modelPath, { recursive: true })
 
@@ -105,15 +105,20 @@ Examples:
     }
 
     // Import to MLFlow
-    progress({ step: 'mlflow', message: 'Importing to MLFlow...' }, ctx.output)
+    logStep({ step: 'mlflow', message: 'Importing to MLFlow...' }, ctx.output)
 
     const mlflowScript = join(ctx.cwd, 'mlflow/scripts/import_run_simple.py')
     const mlflowArgs = [
-      'python3', mlflowScript,
-      '--run-name', runName,
-      '--experiment', experiment,
-      '--model-path', modelPath || artifactsDir,
-      '--status-json', statusPath,
+      'python3',
+      mlflowScript,
+      '--run-name',
+      runName,
+      '--experiment',
+      experiment,
+      '--model-path',
+      modelPath || artifactsDir,
+      '--status-json',
+      statusPath,
     ]
 
     if (existsSync(join(artifactsDir, 'sample_predictions.json'))) {
@@ -132,8 +137,12 @@ Examples:
     await mlflowProc.exited
 
     if (mlflowProc.exitCode !== 0) {
-      return error('MLFLOW_IMPORT_FAILED', 'MLFlow import failed',
-        'Check MLFlow server is running: akk mlflow start', {})
+      return error(
+        'MLFLOW_IMPORT_FAILED',
+        'MLFlow import failed',
+        'Check MLFlow server is running: akk mlflow start',
+        {}
+      )
     }
 
     // Calculate geometric mean for Kaggle comparison
@@ -148,10 +157,8 @@ Examples:
       metrics: {
         bleu: bleu.toFixed(2),
         'chrf++': chrf.toFixed(2),
-        'kaggle_score': kaggleScore.toFixed(2),
-        duration: status.duration_seconds
-          ? `${(status.duration_seconds / 60).toFixed(1)} min`
-          : 'unknown',
+        kaggle_score: kaggleScore.toFixed(2),
+        duration: status.duration_seconds ? `${(status.duration_seconds / 60).toFixed(1)} min` : 'unknown',
       },
       artifacts: artifactsDir,
       registered: args.register,

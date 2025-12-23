@@ -2,11 +2,11 @@
  * Upload notebook to GCS for Colab execution
  */
 
+import { basename, join } from 'path'
 import { z } from 'zod'
-import { join, basename } from 'path'
+import { bucketExists, upload } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { upload, bucketExists } from '../../lib/gcs'
 
 const UploadNotebookArgs = z.object({
   path: z.string().describe('Path to notebook (.ipynb or .py)'),
@@ -46,19 +46,14 @@ After uploading, open in Colab:
     const bucketName = args.bucket || config?.colab?.gcs_bucket
 
     if (!bucketName) {
-      return error(
-        'NO_BUCKET',
-        'No GCS bucket configured',
-        'Set colab.gcs_bucket in akk.toml or use --bucket',
-        {}
-      )
+      return error('NO_BUCKET', 'No GCS bucket configured', 'Set colab.gcs_bucket in akk.toml or use --bucket', {})
     }
 
     // Resolve local path
     const localPath = args.path.startsWith('/') ? args.path : join(ctx.cwd, args.path)
     const file = Bun.file(localPath)
 
-    if (!await file.exists()) {
+    if (!(await file.exists())) {
       return error('FILE_NOT_FOUND', `File not found: ${localPath}`, 'Check the path', { path: localPath })
     }
 
@@ -73,14 +68,14 @@ After uploading, open in Colab:
     const gcsPath = `gs://${bucketName}/${args.prefix}/${filename}`
 
     // Check bucket exists
-    progress({ step: 'check', message: `Checking bucket: ${bucketName}...` }, ctx.output)
+    logStep({ step: 'check', message: `Checking bucket: ${bucketName}...` }, ctx.output)
     const exists = await bucketExists(bucketName)
     if (!exists) {
       return error('BUCKET_NOT_FOUND', `Bucket not found: ${bucketName}`, 'Run: akk colab configure --create', {})
     }
 
     // Upload
-    progress({ step: 'upload', message: `Uploading to ${gcsPath}...` }, ctx.output)
+    logStep({ step: 'upload', message: `Uploading to ${gcsPath}...` }, ctx.output)
     const result = await upload(localPath, gcsPath)
 
     if (!result.success) {
@@ -88,7 +83,7 @@ After uploading, open in Colab:
     }
 
     // Generate Colab URL
-    const colabUrl = `https://colab.research.google.com/drive`  // User needs to open from GCS
+    const colabUrl = `https://colab.research.google.com/drive` // User needs to open from GCS
 
     return success({
       uploaded: gcsPath,

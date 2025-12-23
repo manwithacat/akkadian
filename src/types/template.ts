@@ -6,9 +6,12 @@
  */
 
 import { z } from 'zod'
-import type { PlatformId, PlatformPaths } from './platform'
+import type { PlatformId } from './platform'
+
+export type { PlatformPaths } from './platform'
+
 import type { CompetitionConfig, GCSConfig, TrainingDefaults } from './competition'
-import type { ToolId, ToolConfig } from './tools'
+import type { ToolConfig, ToolId } from './tools'
 
 /**
  * Template variable types
@@ -256,7 +259,7 @@ export const BATCH_SIZE_RECOMMENDATIONS: Record<string, Record<string, number>> 
     'google/byt5-large': 4,
     'google/mt5-small': 16,
     'google/mt5-base': 8,
-    'default': 4,
+    default: 4,
   },
   'kaggle-t4x2': {
     'facebook/nllb-200-distilled-600M': 8,
@@ -265,7 +268,7 @@ export const BATCH_SIZE_RECOMMENDATIONS: Record<string, Record<string, number>> 
     'google/byt5-small': 32,
     'google/byt5-base': 16,
     'google/byt5-large': 8,
-    'default': 8,
+    default: 8,
   },
   'colab-free': {
     'facebook/nllb-200-distilled-600M': 4,
@@ -274,7 +277,7 @@ export const BATCH_SIZE_RECOMMENDATIONS: Record<string, Record<string, number>> 
     'google/byt5-small': 16,
     'google/byt5-base': 8,
     'google/byt5-large': 4,
-    'default': 4,
+    default: 4,
   },
   'colab-pro': {
     'facebook/nllb-200-distilled-600M': 16,
@@ -283,28 +286,28 @@ export const BATCH_SIZE_RECOMMENDATIONS: Record<string, Record<string, number>> 
     'google/byt5-small': 64,
     'google/byt5-base': 32,
     'google/byt5-large': 16,
-    'default': 16,
+    default: 16,
   },
   'vertex-a100': {
     'facebook/nllb-200-distilled-600M': 16,
     'facebook/nllb-200-1.3B': 8,
     'facebook/nllb-200-3.3B': 4,
-    'default': 16,
+    default: 16,
   },
   'runpod-a100': {
     'facebook/nllb-200-distilled-600M': 32,
     'facebook/nllb-200-1.3B': 16,
     'facebook/nllb-200-3.3B': 8,
-    'default': 32,
+    default: 32,
   },
   'runpod-3090': {
     'facebook/nllb-200-distilled-600M': 8,
     'facebook/nllb-200-1.3B': 4,
     'facebook/nllb-200-3.3B': 2,
-    'default': 8,
+    default: 8,
   },
-  'local': {
-    'default': 4,
+  local: {
+    default: 4,
   },
 }
 
@@ -319,9 +322,6 @@ export function getRecommendedBatchSize(platform: PlatformId, modelName: string)
 /**
  * Calculate gradient accumulation steps to achieve target effective batch size
  */
-export function calculateGradientAccumulation(
-  actualBatchSize: number,
-  targetEffectiveBatch: number
-): number {
+export function calculateGradientAccumulation(actualBatchSize: number, targetEffectiveBatch: number): number {
   return Math.max(1, Math.ceil(targetEffectiveBatch / actualBatchSize))
 }

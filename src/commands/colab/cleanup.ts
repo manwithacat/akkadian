@@ -8,11 +8,11 @@
  * - OPTIONAL: Keep best checkpoint if --keep-best-checkpoint
  */
 
-import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress, warn } from '../../lib/output'
-import { listFiles, deleteFile, getSize, exists } from '../../lib/gcs'
 import { spawn } from 'child_process'
+import { z } from 'zod'
+import { deleteFile, exists, getSize, listFiles } from '../../lib/gcs'
+import { error, logStep, success, warn } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const CleanupArgs = z.object({
   run: z.string().optional().describe('Specific run to clean up'),
@@ -26,25 +26,19 @@ const CleanupArgs = z.object({
 
 // Patterns to delete (not needed after training)
 const DELETE_PATTERNS = [
-  'hf_cache/',      // HuggingFace cache (base model can be re-downloaded)
-  '.config/',       // GCloud config (not needed)
-  'sample_data/',   // Colab default files
-  '__pycache__/',   // Python cache
+  'hf_cache/', // HuggingFace cache (base model can be re-downloaded)
+  '.config/', // GCloud config (not needed)
+  'sample_data/', // Colab default files
+  '__pycache__/', // Python cache
   '.ipynb_checkpoints/',
   '.local/',
   '.cache/',
-  'pip_packages/',  // Installed packages
+  'pip_packages/', // Installed packages
   '.jupyter/',
 ]
 
 // Patterns to always keep
-const KEEP_PATTERNS = [
-  'output/model/',
-  'metrics.json',
-  'status.json',
-  'training_log.json',
-  'mlflow_metadata.json',
-]
+const KEEP_PATTERNS = ['output/model/', 'metrics.json', 'status.json', 'training_log.json', 'mlflow_metadata.json']
 
 export const cleanup: CommandDefinition<typeof CleanupArgs> = {
   name: 'colab cleanup',
@@ -111,9 +105,9 @@ A typical v4 run was 48GB in GCS. After cleanup:
       runs = output
         .trim()
         .split('\n')
-        .filter(line => line.length > 0)
-        .map(line => {
-          const match = line.match(/\/([^\/]+)\/$/)
+        .filter((line) => line.length > 0)
+        .map((line) => {
+          const match = line.match(/\/([^/]+)\/$/)
           return match ? match[1] : null
         })
         .filter((name): name is string => name !== null)
@@ -127,10 +121,10 @@ A typical v4 run was 48GB in GCS. After cleanup:
 
     let totalDeleted = 0
     let totalSaved = 0
-    const results: Record<string, { deleted: string[], kept: string[], savedBytes: number }> = {}
+    const results: Record<string, { deleted: string[]; kept: string[]; savedBytes: number }> = {}
 
     for (const run of runs) {
-      progress({ step: 'analyzing', message: `Analyzing run: ${run}...` }, ctx.output)
+      logStep({ step: 'analyzing', message: `Analyzing run: ${run}...` }, ctx.output)
 
       const gcsBase = `gs://${bucket}/mlflow/runs/${experiment}/${run}`
       const deleted: string[] = []
@@ -158,7 +152,7 @@ A typical v4 run was 48GB in GCS. After cleanup:
             }
           }
         } catch {
-          // If we can't read status, proceed with cleanup
+          // If we can't read logStep, proceed with cleanup
         }
       }
 
@@ -168,7 +162,10 @@ A typical v4 run was 48GB in GCS. After cleanup:
         stderr: 'pipe',
       })
       const output = await new Response(proc.stdout).text()
-      const allFiles = output.trim().split('\n').filter(line => line.length > 0 && !line.endsWith(':'))
+      const allFiles = output
+        .trim()
+        .split('\n')
+        .filter((line) => line.length > 0 && !line.endsWith(':'))
 
       // Categorize files
       for (const file of allFiles) {
@@ -176,11 +173,11 @@ A typical v4 run was 48GB in GCS. After cleanup:
 
         // Check if should delete
         const shouldDelete =
-          DELETE_PATTERNS.some(pattern => relPath.includes(pattern)) ||
+          DELETE_PATTERNS.some((pattern) => relPath.includes(pattern)) ||
           (!args.keepCheckpoints && relPath.includes('checkpoints/'))
 
         // Check if should keep
-        const mustKeep = KEEP_PATTERNS.some(pattern => relPath.includes(pattern))
+        const mustKeep = KEEP_PATTERNS.some((pattern) => relPath.includes(pattern))
 
         if (mustKeep) {
           kept.push(relPath)
@@ -202,7 +199,7 @@ A typical v4 run was 48GB in GCS. After cleanup:
 
       // Delete files
       if (!args.dryRun && deleted.length > 0) {
-        progress({ step: 'deleting', message: `Deleting ${deleted.length} files...` }, ctx.output)
+        logStep({ step: 'deleting', message: `Deleting ${deleted.length} files...` }, ctx.output)
 
         for (const file of deleted) {
           const delProc = Bun.spawn(['gsutil', 'rm', file], {
@@ -260,5 +257,5 @@ function formatBytes(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  return parseFloat((bytes / k ** i).toFixed(2)) + ' ' + sizes[i]
 }

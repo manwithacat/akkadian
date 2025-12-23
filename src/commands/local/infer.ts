@@ -2,10 +2,10 @@
  * Local inference with tracing
  */
 
-import { z } from 'zod'
 import { join } from 'path'
+import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
 
 const InferArgs = z.object({
   model: z.string().optional().describe('Model path (local, HuggingFace, or Kaggle)'),
@@ -70,17 +70,21 @@ View traces at: http://localhost:{port}/#/experiments
     const pythonArgs = [
       'python3',
       inferScript,
-      '--model', modelPath,
-      '--tracking-uri', `http://localhost:${port}`,
-      '--source-lang', sourceLang,
-      '--target-lang', targetLang,
+      '--model',
+      modelPath,
+      '--tracking-uri',
+      `http://localhost:${port}`,
+      '--source-lang',
+      sourceLang,
+      '--target-lang',
+      targetLang,
     ]
 
     if (interactive) {
       pythonArgs.push('--interactive')
 
       // Run interactively with stdio inheritance
-      progress({ step: 'load', message: `Loading model: ${modelPath}...` }, ctx.output)
+      logStep({ step: 'load', message: `Loading model: ${modelPath}...` }, ctx.output)
 
       const proc = Bun.spawn(pythonArgs, {
         stdin: 'inherit',
@@ -114,7 +118,7 @@ View traces at: http://localhost:{port}/#/experiments
       )
     }
 
-    progress({ step: 'infer', message: `Translating with ${modelPath}...` }, ctx.output)
+    logStep({ step: 'infer', message: `Translating with ${modelPath}...` }, ctx.output)
 
     const proc = Bun.spawn(pythonArgs, {
       stdout: 'pipe',

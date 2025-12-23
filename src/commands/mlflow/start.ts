@@ -3,9 +3,9 @@
  */
 
 import { z } from 'zod'
+import { checkInstalled, checkServer, listExperiments, startServer, stopServer } from '../../lib/mlflow'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { checkInstalled, checkServer, startServer, stopServer, listExperiments } from '../../lib/mlflow'
 
 const StartArgs = z.object({
   port: z.number().default(5000).describe('Server port'),
@@ -42,7 +42,7 @@ Options:
     const config = ctx.config
 
     // Check MLFlow installed
-    progress({ step: 'check', message: 'Checking MLFlow installation...' }, ctx.output)
+    logStep({ step: 'check', message: 'Checking MLFlow installation...' }, ctx.output)
     const installed = await checkInstalled()
 
     if (!installed.installed) {
@@ -51,7 +51,7 @@ Options:
 
     // Handle stop
     if (stop) {
-      progress({ step: 'stop', message: 'Stopping MLFlow server...' }, ctx.output)
+      logStep({ step: 'stop', message: 'Stopping MLFlow server...' }, ctx.output)
       const result = await stopServer(port)
       return success({
         action: 'stop',
@@ -83,7 +83,7 @@ Options:
     await Bun.spawn(['mkdir', '-p', artifactLocation]).exited
 
     // Start server
-    progress({ step: 'start', message: `Starting MLFlow server on port ${serverPort}...` }, ctx.output)
+    logStep({ step: 'start', message: `Starting MLFlow server on port ${serverPort}...` }, ctx.output)
 
     const result = await startServer({
       trackingUri,

@@ -3,13 +3,10 @@
  */
 
 import { z } from 'zod'
+import { getKernelHistory, listRegisteredKernels } from '../../lib/kernel-registry'
+import { checkServer, listKernelRuns } from '../../lib/mlflow'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
-import {
-  listRegisteredKernels,
-  getKernelHistory,
-} from '../../lib/kernel-registry'
-import { listKernelRuns, checkServer } from '../../lib/mlflow'
 
 const ListKernelsArgs = z.object({
   name: z.string().optional().describe('Filter by kernel base name'),
@@ -70,7 +67,7 @@ Options:
           runName: run.runName,
           kernelId: run.kernelId,
           version: run.version,
-          status: run.status,
+          status: run.logStep,
           timestamp: run.timestamp,
           model: run.model,
         })),
@@ -99,7 +96,7 @@ Options:
           version: v.version,
           kaggleSlug: v.kaggle_slug,
           timestamp: v.timestamp,
-          status: v.status,
+          status: v.logStep,
           mlflowRunId: v.mlflow_run_id,
           model: v.model,
           notes: v.notes,

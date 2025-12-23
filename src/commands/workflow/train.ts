@@ -2,11 +2,11 @@
  * End-to-end training workflow orchestration
  */
 
+import { basename, join } from 'path'
 import { z } from 'zod'
-import { join, basename } from 'path'
+import { bucketExists, download, listFiles, rsync, upload } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { upload, listFiles, download, rsync, bucketExists } from '../../lib/gcs'
 
 const TrainWorkflowArgs = z.object({
   notebook: z.string().describe('Training notebook path'),
@@ -16,7 +16,7 @@ const TrainWorkflowArgs = z.object({
   'skip-upload': z.boolean().default(false).describe('Skip notebook upload'),
   'skip-download': z.boolean().default(false).describe('Skip artifact download'),
   'wait-for-completion': z.boolean().default(true).describe('Wait for training to complete'),
-  'timeout': z.number().default(7200).describe('Timeout in seconds (default: 2 hours)'),
+  timeout: z.number().default(7200).describe('Timeout in seconds (default: 2 hours)'),
   'poll-interval': z.number().default(60).describe('Status check interval in seconds'),
 })
 
@@ -82,8 +82,8 @@ Options:
       { step: 'sync', status: 'pending' },
     ]
 
-    const updateStep = (name: string, status: typeof steps[0]['status'], message?: string) => {
-      const step = steps.find(s => s.step === name)
+    const updateStep = (name: string, status: (typeof steps)[0]['status'], message?: string) => {
+      const step = steps.find((s) => s.step === name)
       if (step) {
         step.status = status
         step.message = message
@@ -93,17 +93,17 @@ Options:
     // Step 1: Upload notebook
     if (!args['skip-upload']) {
       updateStep('upload', 'running')
-      progress({ step: 'upload', message: 'Uploading notebook to GCS...' }, ctx.output)
+      logStep({ step: 'upload', message: 'Uploading notebook to GCS...' }, ctx.output)
 
       const localPath = args.notebook.startsWith('/') ? args.notebook : join(ctx.cwd, args.notebook)
       const notebookFile = Bun.file(localPath)
 
-      if (!await notebookFile.exists()) {
+      if (!(await notebookFile.exists())) {
         return error('FILE_NOT_FOUND', `Notebook not found: ${localPath}`, 'Check the path', {})
       }
 
       // Check bucket
-      if (!await bucketExists(bucket)) {
+      if (!(await bucketExists(bucket))) {
         return error('BUCKET_NOT_FOUND', `Bucket not found: ${bucket}`, 'Run: akk colab configure --create', {})
       }
 
@@ -138,7 +138,7 @@ Options:
 
     // Step 2: Display Colab instructions
     updateStep('colab', 'running')
-    progress({ step: 'colab', message: 'Preparing Colab instructions...' }, ctx.output)
+    logStep({ step: 'colab', message: 'Preparing Colab instructions...' }, ctx.output)
 
     const colabInstructions = `
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -170,7 +170,7 @@ Options:
     // Step 3: Monitor (if waiting)
     if (args['wait-for-completion']) {
       updateStep('monitor', 'running')
-      progress({ step: 'monitor', message: 'Waiting for training to complete...' }, ctx.output)
+      logStep({ step: 'monitor', message: 'Waiting for training to complete...' }, ctx.output)
 
       console.log('\nMonitoring training progress (Ctrl+C to stop waiting)...')
       console.log(`Checking every ${args['poll-interval']} seconds, timeout: ${args.timeout}s\n`)
@@ -178,7 +178,7 @@ Options:
       const startTime = Date.now()
       let completed = false
 
-      while (!completed && (Date.now() - startTime) < args.timeout * 1000) {
+      while (!completed && Date.now() - startTime < args.timeout * 1000) {
         // Check for completion indicators
         const statusPath = `${gcsRunPath}/status.json`
         const tempFile = `/tmp/status_check_${Date.now()}.json`
@@ -210,14 +210,14 @@ Options:
 
         // Also check for model files as completion indicator
         const outputFiles = await listFiles(`${gcsRunPath}/output/`)
-        if (outputFiles.some(f => f.includes('model') || f.includes('pytorch'))) {
+        if (outputFiles.some((f) => f.includes('model') || f.includes('pytorch'))) {
           console.log('Model files detected in output directory')
           completed = true
           updateStep('monitor', 'done', 'Model files detected')
           break
         }
 
-        await new Promise(resolve => setTimeout(resolve, args['poll-interval'] * 1000))
+        await new Promise((resolve) => setTimeout(resolve, args['poll-interval'] * 1000))
       }
 
       if (!completed) {
@@ -232,7 +232,7 @@ Options:
     // Step 4: Download artifacts
     if (!args['skip-download']) {
       updateStep('download', 'running')
-      progress({ step: 'download', message: 'Downloading artifacts...' }, ctx.output)
+      logStep({ step: 'download', message: 'Downloading artifacts...' }, ctx.output)
 
       const outputDir = join(ctx.cwd, 'artifacts', runName)
       await Bun.write(join(outputDir, '.gitkeep'), '')
@@ -253,7 +253,7 @@ Options:
 
     // Step 5: Sync to MLFlow
     updateStep('sync', 'running')
-    progress({ step: 'sync', message: 'Syncing to local MLFlow...' }, ctx.output)
+    logStep({ step: 'sync', message: 'Syncing to local MLFlow...' }, ctx.output)
 
     // This would call the mlflow sync command internally
     // For now, just provide instructions
@@ -265,7 +265,10 @@ Options:
       experiment,
       bucket,
       gcsPath: gcsRunPath,
-      steps: steps.map(s => `${s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : s.status === 'skipped' ? '○' : '·'} ${s.step}${s.message ? `: ${s.message}` : ''}`),
+      steps: steps.map(
+        (s) =>
+          `${s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : s.status === 'skipped' ? '○' : '·'} ${s.step}${s.message ? `: ${s.message}` : ''}`
+      ),
       nextSteps: [
         `Check status: akk colab status --run ${runName} --experiment ${experiment}`,
         `Download artifacts: akk colab download-artifacts --run ${runName}`,

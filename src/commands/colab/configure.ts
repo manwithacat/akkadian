@@ -3,9 +3,9 @@
  */
 
 import { z } from 'zod'
+import { bucketExists, checkAuth, createBucket, getCurrentProject, listBuckets, setProject } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { checkAuth, getCurrentProject, setProject, bucketExists, createBucket, listBuckets } from '../../lib/gcs'
 
 const ConfigureArgs = z.object({
   bucket: z.string().optional().describe('GCS bucket name'),
@@ -42,7 +42,7 @@ Options:
     const checks: { name: string; status: 'ok' | 'warning' | 'error'; message: string }[] = []
 
     // Check authentication
-    progress({ step: 'auth', message: 'Checking GCloud authentication...' }, ctx.output)
+    logStep({ step: 'auth', message: 'Checking GCloud authentication...' }, ctx.output)
     const auth = await checkAuth()
 
     if (!auth.authenticated) {
@@ -60,7 +60,7 @@ Options:
     }
 
     // Check/set project
-    progress({ step: 'project', message: 'Checking GCP project...' }, ctx.output)
+    logStep({ step: 'project', message: 'Checking GCP project...' }, ctx.output)
     let currentProject = await getCurrentProject()
 
     if (projectId && currentProject !== projectId) {
@@ -95,7 +95,7 @@ Options:
 
     // Check bucket
     if (bucketName) {
-      progress({ step: 'bucket', message: `Checking bucket: ${bucketName}...` }, ctx.output)
+      logStep({ step: 'bucket', message: `Checking bucket: ${bucketName}...` }, ctx.output)
       const exists = await bucketExists(bucketName)
 
       if (exists) {
@@ -105,7 +105,7 @@ Options:
           message: `gs://${bucketName} exists`,
         })
       } else if (args.create) {
-        progress({ step: 'create', message: `Creating bucket: ${bucketName}...` }, ctx.output)
+        logStep({ step: 'create', message: `Creating bucket: ${bucketName}...` }, ctx.output)
         const result = await createBucket(bucketName, args.location)
 
         if (result.success) {

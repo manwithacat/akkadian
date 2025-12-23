@@ -6,7 +6,7 @@
 
 import { Database } from 'bun:sqlite'
 import { randomUUID } from 'crypto'
-import type { DatasetVersion, DatasetSourceType, MLflowLink, MLflowLinkType } from '../types/data'
+import type { DatasetSourceType, DatasetVersion, MLflowLink, MLflowLinkType } from '../types/data'
 
 const SCHEMA_VERSION = 1
 
@@ -86,14 +86,12 @@ export class DatasetRegistry {
     this.db.exec(INIT_SQL)
 
     // Check/set schema version
-    const versionRow = this.db
-      .query("SELECT value FROM _schema_info WHERE key = 'version'")
-      .get() as { value: string } | null
+    const versionRow = this.db.query("SELECT value FROM _schema_info WHERE key = 'version'").get() as {
+      value: string
+    } | null
 
     if (!versionRow) {
-      this.db
-        .prepare("INSERT INTO _schema_info (key, value) VALUES ('version', ?)")
-        .run(String(SCHEMA_VERSION))
+      this.db.prepare("INSERT INTO _schema_info (key, value) VALUES ('version', ?)").run(String(SCHEMA_VERSION))
     }
   }
 
@@ -161,10 +159,7 @@ export class DatasetRegistry {
    * Get a specific dataset version
    */
   get(id: string): DatasetVersion | null {
-    const row = this.db.query('SELECT * FROM dataset_versions WHERE id = ?').get(id) as Record<
-      string,
-      unknown
-    > | null
+    const row = this.db.query('SELECT * FROM dataset_versions WHERE id = ?').get(id) as Record<string, unknown> | null
 
     return row ? this.rowToDataset(row) : null
   }
@@ -196,7 +191,7 @@ export class DatasetRegistry {
    */
   list(filter?: ListFilter): DatasetVersion[] {
     let sql = 'SELECT * FROM dataset_versions WHERE 1=1'
-    const params: unknown[] = []
+    const params: (string | number | null)[] = []
 
     if (filter?.name) {
       sql += ' AND name = ?'
@@ -217,12 +212,7 @@ export class DatasetRegistry {
   /**
    * Link a dataset version to an MLflow run
    */
-  linkMlflowRun(
-    datasetVersionId: string,
-    mlflowRunId: string,
-    linkType: MLflowLinkType,
-    experimentId?: string
-  ): void {
+  linkMlflowRun(datasetVersionId: string, mlflowRunId: string, linkType: MLflowLinkType, experimentId?: string): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO dataset_mlflow_links (
         dataset_version_id, mlflow_run_id, mlflow_experiment_id, link_type, created_at
@@ -289,9 +279,9 @@ export class DatasetRegistry {
    * Get all unique dataset names
    */
   getDatasetNames(): string[] {
-    const rows = this.db
-      .query('SELECT DISTINCT name FROM dataset_versions ORDER BY name')
-      .all() as Array<{ name: string }>
+    const rows = this.db.query('SELECT DISTINCT name FROM dataset_versions ORDER BY name').all() as Array<{
+      name: string
+    }>
 
     return rows.map((row) => row.name)
   }

@@ -3,9 +3,9 @@
  */
 
 import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 import { getKernelStatus } from '../../lib/kaggle'
+import { error, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const StatusArgs = z.object({
   path: z.string().describe('Kernel slug (user/kernel-name)'),
@@ -24,9 +24,7 @@ Possible statuses:
   - error: Failed with error
   - cancelled: Manually cancelled
 `,
-  examples: [
-    'akk kaggle status manwithacat/nllb-train',
-  ],
+  examples: ['akk kaggle status manwithacat/nllb-train'],
   args: StatusArgs,
 
   async run(args, ctx) {
@@ -46,16 +44,13 @@ Possible statuses:
 
       return success({
         slug,
-        status: status.status,
+        status: status.logStep,
         failureMessage: status.failureMessage || null,
       })
     } catch (err) {
-      return error(
-        'STATUS_ERROR',
-        err instanceof Error ? err.message : String(err),
-        'Check kernel slug is correct',
-        { slug }
-      )
+      return error('STATUS_ERROR', err instanceof Error ? err.message : String(err), 'Check kernel slug is correct', {
+        slug,
+      })
     }
   },
 }

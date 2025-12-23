@@ -11,7 +11,11 @@
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile=dist/akk",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "prepare": "lefthook install"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
@@ -23,8 +27,10 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.10",
     "@types/bun": "latest",
     "@types/react": "^18.3.0",
+    "lefthook": "^2.0.12",
     "typescript": "^5.7.0"
   }
 }

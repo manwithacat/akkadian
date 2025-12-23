@@ -3,9 +3,9 @@
  */
 
 import { z } from 'zod'
+import { download, listFiles } from '../../lib/gcs'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
-import { listFiles, download } from '../../lib/gcs'
 
 const StatusArgs = z.object({
   run: z.string().optional().describe('Run name to check'),
@@ -50,7 +50,7 @@ async function getLatestCheckpoint(bucket: string, prefix: string): Promise<stri
 
   // Sort by checkpoint number
   const checkpoints = files
-    .filter(f => f.includes('checkpoint-'))
+    .filter((f) => f.includes('checkpoint-'))
     .sort((a, b) => {
       const numA = parseInt(a.match(/checkpoint-(\d+)/)?.[1] || '0')
       const numB = parseInt(b.match(/checkpoint-(\d+)/)?.[1] || '0')
@@ -121,7 +121,7 @@ Options:
 
     // If no run specified, list recent runs
     if (!args.run) {
-      progress({ step: 'list', message: 'Listing recent runs...' }, ctx.output)
+      logStep({ step: 'list', message: 'Listing recent runs...' }, ctx.output)
       const runsPath = `gs://${bucket}/mlflow/runs/${experiment}/`
       const runs = await listFiles(runsPath)
 
@@ -134,7 +134,7 @@ Options:
       }
 
       const runNames = runs
-        .map(r => r.replace(runsPath, '').replace('/', ''))
+        .map((r) => r.replace(runsPath, '').replace('/', ''))
         .filter(Boolean)
         .slice(0, 10)
 
@@ -156,11 +156,11 @@ Options:
       // Check for completion indicators
       const outputPath = `gs://${bucket}/${prefix}/output/`
       const outputs = await listFiles(outputPath)
-      const hasModel = outputs.some(f => f.includes('model') || f.includes('pytorch'))
+      const hasModel = outputs.some((f) => f.includes('model') || f.includes('pytorch'))
 
       // Infer status if no status file
       const inferredStatus: TrainingStatus = status || {
-        phase: hasModel ? 'completed' : (checkpoint ? 'training' : 'not_started'),
+        phase: hasModel ? 'completed' : checkpoint ? 'training' : 'not_started',
         lastCheckpoint: checkpoint || undefined,
         metrics: metrics || undefined,
       }
@@ -204,13 +204,13 @@ Options:
           break
         }
 
-        await new Promise(resolve => setTimeout(resolve, args.interval * 1000))
+        await new Promise((resolve) => setTimeout(resolve, args.interval * 1000))
       }
 
       return success(await checkStatus())
     }
 
-    progress({ step: 'check', message: `Checking status for ${args.run}...` }, ctx.output)
+    logStep({ step: 'check', message: `Checking status for ${args.run}...` }, ctx.output)
     return success(await checkStatus())
   },
 }

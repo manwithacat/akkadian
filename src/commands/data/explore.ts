@@ -2,18 +2,13 @@
  * Launch Datasette to explore dataset files
  */
 
-import { z } from 'zod'
 import { join } from 'path'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error, progress } from '../../lib/output'
+import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
+import { checkDatasetteInstalled, findAvailablePort, isPortInUse, startDatasette } from '../../lib/datasette'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 import { parseDatasetRef } from '../../types/data'
-import {
-  checkDatasetteInstalled,
-  startDatasette,
-  findAvailablePort,
-  isPortInUse,
-} from '../../lib/datasette'
 
 const ExploreArgs = z.object({
   name: z.string().optional().describe('Dataset name to explore (default: all)'),
@@ -53,12 +48,7 @@ Requires datasette to be installed: pip install datasette
     // Check datasette is installed
     const installed = await checkDatasetteInstalled()
     if (!installed) {
-      return error(
-        'DATASETTE_NOT_INSTALLED',
-        'Datasette is not installed',
-        'Install with: pip install datasette',
-        {}
-      )
+      return error('DATASETTE_NOT_INSTALLED', 'Datasette is not installed', 'Install with: pip install datasette', {})
     }
 
     // Get registry
@@ -68,12 +58,9 @@ Requires datasette to be installed: pip install datasette
     // Check if registry exists
     const registryFile = Bun.file(registryPath)
     if (!(await registryFile.exists())) {
-      return error(
-        'NO_REGISTRY',
-        'No dataset registry found',
-        'Run "akk data download" first to create the registry',
-        { path: registryPath }
-      )
+      return error('NO_REGISTRY', 'No dataset registry found', 'Run "akk data download" first to create the registry', {
+        path: registryPath,
+      })
     }
 
     const registry = new DatasetRegistry(registryPath)
@@ -84,9 +71,7 @@ Requires datasette to be installed: pip install datasette
 
       if (name) {
         // Get specific dataset
-        const dataset = version
-          ? registry.getVersion(name, version)
-          : registry.getLatestVersion(name)
+        const dataset = version ? registry.getVersion(name, version) : registry.getLatestVersion(name)
 
         if (!dataset) {
           const ref = version ? `${name}:${version}` : name
@@ -110,10 +95,7 @@ Requires datasette to be installed: pip install datasette
         }
 
         databases.push(dataset.sqlitePath)
-        progress(
-          { step: 'found', message: `Opening ${dataset.name}:${dataset.version}` },
-          ctx.output
-        )
+        progress({ step: 'found', message: `Opening ${dataset.name}:${dataset.version}` }, ctx.output)
       } else {
         // Get all unique datasets (latest versions)
         const names = registry.getDatasetNames()
@@ -138,10 +120,7 @@ Requires datasette to be installed: pip install datasette
           }
         }
 
-        progress(
-          { step: 'found', message: `Opening ${databases.length} datasets` },
-          ctx.output
-        )
+        progress({ step: 'found', message: `Opening ${databases.length} datasets` }, ctx.output)
       }
 
       // Also include registry for metadata exploration
@@ -150,15 +129,12 @@ Requires datasette to be installed: pip install datasette
       // Find available port
       let port = requestedPort
       if (await isPortInUse(port)) {
-        progress(
-          { step: 'port', message: `Port ${port} in use, finding alternative...` },
-          ctx.output
-        )
+        progress({ step: 'port', message: `Port ${port} in use, finding alternative...` }, ctx.output)
         port = await findAvailablePort(requestedPort + 1)
       }
 
       // Start datasette
-      progress({ step: 'start', message: `Starting Datasette on port ${port}...` }, ctx.output)
+      logStep({ step: 'start', message: `Starting Datasette on port ${port}...` }, ctx.output)
 
       const { process: dsProcess, url } = await startDatasette({
         databases,
@@ -166,7 +142,7 @@ Requires datasette to be installed: pip install datasette
         openBrowser: !noBrowser,
       })
 
-      progress({ step: 'ready', message: `Datasette running at ${url}` }, ctx.output)
+      logStep({ step: 'ready', message: `Datasette running at ${url}` }, ctx.output)
 
       // Wait for process (blocks until terminated)
       const exitCode = await dsProcess.exited

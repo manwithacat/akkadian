@@ -5,25 +5,23 @@
  */
 
 import { TemplateEngine } from '../lib/template-engine'
-import { KaggleAdapter } from './adapters/kaggle'
-import { ColabAdapter } from './adapters/colab'
-import { VertexAdapter } from './adapters/vertex'
-import { RunPodAdapter } from './adapters/runpod'
 import type { PlatformId } from '../types/platform'
 import type { PlatformAdapter } from '../types/template'
-
-// Re-export types
-export type { TemplateMetadata, TemplateContext, PlatformAdapter, TemplateRenderResult } from '../types/template'
-export type { PlatformId } from '../types/platform'
-
-// Re-export adapters
-export { KaggleAdapter } from './adapters/kaggle'
-export { ColabAdapter } from './adapters/colab'
-export { VertexAdapter } from './adapters/vertex'
-export { RunPodAdapter } from './adapters/runpod'
+import { ColabAdapter } from './adapters/colab'
+import { KaggleAdapter } from './adapters/kaggle'
+import { RunPodAdapter } from './adapters/runpod'
+import { VertexAdapter } from './adapters/vertex'
 
 // Re-export engine
 export { TemplateEngine } from '../lib/template-engine'
+export type { PlatformId } from '../types/platform'
+// Re-export types
+export type { PlatformAdapter, TemplateContext, TemplateMetadata, TemplateRenderResult } from '../types/template'
+export { ColabAdapter } from './adapters/colab'
+// Re-export adapters
+export { KaggleAdapter } from './adapters/kaggle'
+export { RunPodAdapter } from './adapters/runpod'
+export { VertexAdapter } from './adapters/vertex'
 
 /**
  * Get adapter for a platform
@@ -69,7 +67,7 @@ export function createTemplateEngine(): TemplateEngine {
  * Available template names
  */
 export const AVAILABLE_TEMPLATES = ['training', 'inference'] as const
-export type TemplateName = typeof AVAILABLE_TEMPLATES[number]
+export type TemplateName = (typeof AVAILABLE_TEMPLATES)[number]
 
 /**
  * Template descriptions
@@ -92,4 +90,5 @@ export const PLATFORM_DISPLAY_NAMES: Record<PlatformId, string> = {
   'vertex-t4': 'Vertex AI T4 (16GB)',
   'runpod-a100': 'RunPod A100 (40-80GB)',
   'runpod-3090': 'RunPod RTX 3090 (24GB)',
+  local: 'Local Machine',
 }
