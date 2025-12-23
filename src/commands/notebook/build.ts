@@ -563,11 +563,14 @@ print("="*60)
  */
 function generateMetadata(config: TrainingConfig, outputPath: string): Record<string, unknown> {
   const dataSources = config.data.sources.map(parseDataSource)
-  const slug = config.meta.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+  // Include version in slug for unique kernel per version (avoids Kaggle's versioning UX)
+  const baseName = config.meta.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+  const version = config.meta.version.replace(/\./g, '-')
+  const slug = `${baseName}-v${version}`
 
   return {
     id: `manwithacat/${slug}`,
-    title: config.meta.name,
+    title: `${config.meta.name} v${config.meta.version}`,
     code_file: basename(outputPath),
     language: 'python',
     kernel_type: 'script',
@@ -639,9 +642,10 @@ Example config structure: see notebooks/kaggle/training.toml
       )
     }
 
-    // Determine output path
-    const outputPath =
-      args.output || join(dirname(args.path), `${config.meta.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.py`)
+    // Determine output path (include version for unique kernels per version)
+    const baseName = config.meta.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+    const versionSuffix = `_v${config.meta.version.replace(/\./g, '_')}`
+    const outputPath = args.output || join(dirname(args.path), `${baseName}${versionSuffix}.py`)
 
     // Generate notebook
     const notebook = generateNotebook(config, args.path)

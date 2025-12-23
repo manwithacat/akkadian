@@ -44,7 +44,7 @@ Possible statuses:
 
       return success({
         slug,
-        status: status.logStep,
+        status: status.status,
         failureMessage: status.failureMessage || null,
       })
     } catch (err) {

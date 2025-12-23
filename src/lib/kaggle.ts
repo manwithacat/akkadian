@@ -93,7 +93,7 @@ export async function getKernelStatus(slug: string): Promise<KernelStatus> {
   const failureMatch = stdout.match(/failureMessage:\s*"([^"]+)"/)
 
   return {
-    logStep,
+    status,
     failureMessage: failureMatch?.[1],
   }
 }
