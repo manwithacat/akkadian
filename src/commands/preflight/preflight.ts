@@ -1,8 +1,8 @@
-import { z } from 'zod'
 import { existsSync, readFileSync } from 'fs'
 import { basename, extname } from 'path'
+import { z } from 'zod'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 import { PLATFORMS, type PlatformProfile } from './platforms'
 
 /**
@@ -41,6 +41,7 @@ interface ExtractedConfig {
   num_epochs?: number
   fp16?: boolean
   save_total_limit?: number
+  save_only_model?: boolean
   dataloader_num_workers?: number
 }
 
@@ -87,6 +88,9 @@ function extractConfig(content: string): ExtractedConfig {
   const saveMatch = content.match(/["']?save_total_limit["']?\s*[=:]\s*(\d+)/)
   if (saveMatch) config.save_total_limit = parseInt(saveMatch[1])
 
+  // Save only model (skip optimizer states to save disk space)
+  config.save_only_model = /["']?save_only_model["']?\s*[=:]\s*True/i.test(content)
+
   // Dataloader workers
   const workersMatch = content.match(/dataloader_num_workers\s*=\s*(\d+)/)
   if (workersMatch) config.dataloader_num_workers = parseInt(workersMatch[1])
@@ -99,11 +103,11 @@ function extractConfig(content: string): ExtractedConfig {
  */
 function estimateGpuMemory(config: ExtractedConfig): { peak_gb: number; breakdown: Record<string, number> } {
   const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
-  const modelSize = modelInfo?.size_gb || 2.0  // Default 2GB
+  const modelSize = modelInfo?.size_gb || 2.0 // Default 2GB
 
   const batchSize = config.batch_size || 8
   const seqLen = Math.max(config.max_src_len || 256, config.max_tgt_len || 256)
-  const fp16 = config.fp16 !== false  // Default to fp16
+  const fp16 = config.fp16 !== false // Default to fp16
 
   // Memory breakdown (rough estimates)
   const breakdown: Record<string, number> = {}
@@ -120,10 +124,10 @@ function estimateGpuMemory(config: ExtractedConfig): { peak_gb: number; breakdow
   // Activations (rough estimate based on batch size and sequence length)
   // This is highly variable but we use a heuristic
   const activationFactor = (batchSize * seqLen * seqLen) / (8 * 256 * 256)
-  breakdown['activations'] = Math.min(modelSize * 2 * activationFactor, 16)  // Cap at 16GB
+  breakdown['activations'] = Math.min(modelSize * 2 * activationFactor, 16) // Cap at 16GB
 
   // KV cache and attention
-  breakdown['attention_cache'] = batchSize * seqLen * 0.001  // ~1MB per token per batch
+  breakdown['attention_cache'] = batchSize * seqLen * 0.001 // ~1MB per token per batch
 
   // CUDA overhead
   breakdown['cuda_overhead'] = 0.5
@@ -136,37 +140,57 @@ function estimateGpuMemory(config: ExtractedConfig): { peak_gb: number; breakdow
 /**
  * Estimate disk usage
  *
- * IMPORTANT: HuggingFace Trainer saves checkpoints in fp32 by default,
- * even when training with fp16. This means checkpoint sizes are ~2x
- * the fp16 model size.
+ * IMPORTANT: HuggingFace Trainer saves FULL checkpoints by default including:
+ * - model weights (model.safetensors): fp32, ~2x fp16 model size
+ * - optimizer states (optimizer.pt): ~2x model weights for Adam (momentum + variance)
+ * - scheduler state, RNG states, trainer state: small (~1MB)
+ *
+ * Total checkpoint size ≈ 3x model weights in fp32 ≈ 6x fp16 model size
  *
  * Additionally, during checkpoint rotation (when save_total_limit > 1),
  * there can be up to (save_total_limit + 1) checkpoints on disk simultaneously
  * as the old checkpoint is deleted after the new one is saved.
  *
- * Empirical observation: NLLB-600M (1.2GB fp16) saves 2.46GB checkpoints.
+ * Empirical observation: NLLB-600M (1.2GB fp16):
+ * - model.safetensors: 2.3 GB
+ * - optimizer.pt: 4.6 GB (when disk space available)
+ * - Total checkpoint: ~7 GB
  */
-function estimateDiskUsage(config: ExtractedConfig): { total_gb: number; breakdown: Record<string, number>; peak_gb: number } {
+function estimateDiskUsage(config: ExtractedConfig): {
+  total_gb: number
+  breakdown: Record<string, number>
+  peak_gb: number
+  save_only_model: boolean
+} {
   const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
   const modelSizeFp16 = modelInfo?.size_gb || 2.0
+  const saveOnlyModel = config.save_only_model === true
 
-  // Checkpoints are saved in fp32 by default (2x fp16 size)
-  const checkpointSize = modelSizeFp16 * 2
+  // Model weights in checkpoint (fp32 = 2x fp16)
+  const modelWeightsFp32 = modelSizeFp16 * 2
+
+  // Optimizer states in checkpoint: Adam saves momentum + variance (2x model weights)
+  // If save_only_model=True, optimizer is NOT saved (significant disk savings!)
+  const optimizerStateSize = saveOnlyModel ? 0 : modelWeightsFp32 * 2
+
+  // Full checkpoint size: model + optimizer + small overhead
+  const checkpointSize = modelWeightsFp32 + optimizerStateSize + 0.01
 
   const breakdown: Record<string, number> = {}
 
   // HuggingFace cache (model download - includes both pytorch and safetensors)
-  breakdown['hf_cache'] = modelSizeFp16 * 2.5  // Often downloads multiple formats
+  breakdown['hf_cache'] = modelSizeFp16 * 2.5 // Often downloads multiple formats
 
-  // Checkpoints at steady state
+  // Checkpoints at steady state (model + optimizer states)
   const saveLimit = config.save_total_limit || 3
-  breakdown['checkpoints_steady'] = checkpointSize * saveLimit
+  breakdown['checkpoints_model'] = modelWeightsFp32 * saveLimit
+  breakdown['checkpoints_optimizer'] = optimizerStateSize * saveLimit
 
   // Peak checkpoint usage: during rotation, +1 checkpoint temporarily exists
   const peakCheckpoints = checkpointSize * (saveLimit + 1)
 
   // Final saved model (also fp32 by default from Trainer)
-  breakdown['final_model'] = checkpointSize
+  breakdown['final_model'] = modelWeightsFp32
 
   // Tokenizer and configs
   breakdown['tokenizer_config'] = 0.1
@@ -177,16 +201,13 @@ function estimateDiskUsage(config: ExtractedConfig): { total_gb: number; breakdo
   // Training outputs (submission.csv, etc)
   breakdown['outputs'] = 0.01
 
-  // Optimizer states during training (temporary, but can be large)
-  // Adam optimizer: 2 states per parameter (momentum + variance)
-  breakdown['optimizer_disk'] = 0  // Usually in memory, but can spill
-
   const total_gb = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
   // Peak includes the extra checkpoint during rotation
-  const peak_gb = total_gb - breakdown['checkpoints_steady'] + peakCheckpoints
+  const steadyCheckpoints = (modelWeightsFp32 + optimizerStateSize) * saveLimit
+  const peak_gb = total_gb - steadyCheckpoints + peakCheckpoints
 
-  return { total_gb, breakdown, peak_gb }
+  return { total_gb, breakdown, peak_gb, save_only_model: saveOnlyModel }
 }
 
 /**
@@ -213,7 +234,7 @@ function estimateTrainingTime(
 
   // Get model size for calibration
   const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
-  const modelParams = modelInfo?.params_b || 0.6  // Default to 600M
+  const modelParams = modelInfo?.params_b || 0.6 // Default to 600M
 
   // Empirically calibrated seconds per step
   // Base: P100 with 600M model at batch=2, max_len=192 ≈ 3 sec/step
@@ -230,15 +251,15 @@ function estimateTrainingTime(
 
   // Scale by sequence length (quadratic attention, but bounded)
   const seqLen = Math.max(config.max_src_len || 192, config.max_tgt_len || 192)
-  const seqScale = Math.pow(seqLen / 192, 1.5)
+  const seqScale = (seqLen / 192) ** 1.5
 
   const secondsPerStep = baseSecondsPerStep * modelScale * gpuScale * batchScale * seqScale
 
   const breakdown: Record<string, number> = {}
   breakdown['training'] = (totalSteps * secondsPerStep) / 3600
-  breakdown['evaluation'] = (totalSteps / 100) * 30 / 3600  // ~30 sec per eval
-  breakdown['model_loading'] = 0.1  // 6 minutes for model download/load
-  breakdown['bleu_computation'] = 0.1  // 6 minutes for final BLEU
+  breakdown['evaluation'] = ((totalSteps / 100) * 30) / 3600 // ~30 sec per eval
+  breakdown['model_loading'] = 0.1 // 6 minutes for model download/load
+  breakdown['bleu_computation'] = 0.1 // 6 minutes for final BLEU
 
   const hours = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
@@ -361,12 +382,11 @@ Use 'akk preflight platforms' to see available platforms.
       try {
         const notebook = JSON.parse(readFileSync(args.path, 'utf-8'))
         // Extract code from cells
-        content = notebook.cells
-          ?.filter((c: { cell_type: string }) => c.cell_type === 'code')
-          ?.map((c: { source: string[] }) =>
-            Array.isArray(c.source) ? c.source.join('') : c.source
-          )
-          ?.join('\n') || ''
+        content =
+          notebook.cells
+            ?.filter((c: { cell_type: string }) => c.cell_type === 'code')
+            ?.map((c: { source: string[] }) => (Array.isArray(c.source) ? c.source.join('') : c.source))
+            ?.join('\n') || ''
       } catch (e) {
         return error(
           'PARSE_ERROR',
@@ -377,11 +397,7 @@ Use 'akk preflight platforms' to see available platforms.
     } else if (ext === '.py') {
       content = readFileSync(args.path, 'utf-8')
     } else {
-      return error(
-        'INVALID_FORMAT',
-        `Unsupported file format: ${ext}`,
-        'Provide a .ipynb or .py file'
-      )
+      return error('INVALID_FORMAT', `Unsupported file format: ${ext}`, 'Provide a .ipynb or .py file')
     }
 
     // Extract configuration
@@ -396,52 +412,67 @@ Use 'akk preflight platforms' to see available platforms.
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
-    const gpuStatus = gpuEstimate.peak_gb <= platform.gpu.vram_gb * 0.9 ? 'pass' :
-                      gpuEstimate.peak_gb <= platform.gpu.vram_gb ? 'warn' : 'fail'
+    const gpuStatus =
+      gpuEstimate.peak_gb <= platform.gpu.vram_gb * 0.9
+        ? 'pass'
+        : gpuEstimate.peak_gb <= platform.gpu.vram_gb
+          ? 'warn'
+          : 'fail'
     checks.push({
       check: 'GPU Memory',
       status: gpuStatus,
-      message: gpuStatus === 'fail'
-        ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.gpu.vram_gb}GB VRAM`
-        : gpuStatus === 'warn'
-        ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB is close to ${platform.gpu.vram_gb}GB limit`
-        : `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB fits in ${platform.gpu.vram_gb}GB VRAM`,
+      message:
+        gpuStatus === 'fail'
+          ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.gpu.vram_gb}GB VRAM`
+          : gpuStatus === 'warn'
+            ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB is close to ${platform.gpu.vram_gb}GB limit`
+            : `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB fits in ${platform.gpu.vram_gb}GB VRAM`,
       details: args.verbose ? gpuEstimate.breakdown : undefined,
     })
 
     // 2. Disk Space Check (use peak_gb for actual limit, as checkpoint rotation creates temporary spikes)
     const diskEstimate = estimateDiskUsage(config)
-    const diskStatus = diskEstimate.peak_gb <= platform.disk.working_gb * 0.8 ? 'pass' :
-                       diskEstimate.peak_gb <= platform.disk.working_gb ? 'warn' : 'fail'
+    const diskStatus =
+      diskEstimate.peak_gb <= platform.disk.working_gb * 0.8
+        ? 'pass'
+        : diskEstimate.peak_gb <= platform.disk.working_gb
+          ? 'warn'
+          : 'fail'
     checks.push({
       check: 'Disk Space',
       status: diskStatus,
-      message: diskStatus === 'fail'
-        ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.disk.working_gb}GB working space`
-        : diskStatus === 'warn'
-        ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB is close to ${platform.disk.working_gb}GB limit`
-        : `Peak ${diskEstimate.peak_gb.toFixed(1)}GB fits in ${platform.disk.working_gb}GB working space`,
+      message:
+        diskStatus === 'fail'
+          ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.disk.working_gb}GB working space`
+          : diskStatus === 'warn'
+            ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB is close to ${platform.disk.working_gb}GB limit`
+            : `Peak ${diskEstimate.peak_gb.toFixed(1)}GB fits in ${platform.disk.working_gb}GB working space`,
       details: args.verbose ? { ...diskEstimate.breakdown, peak_gb: diskEstimate.peak_gb } : undefined,
     })
 
     // 3. Training Time Check
     const timeEstimate = estimateTrainingTime(config, platform, args.samples)
-    const timeStatus = timeEstimate.hours <= platform.time.max_hours * 0.8 ? 'pass' :
-                       timeEstimate.hours <= platform.time.max_hours ? 'warn' : 'fail'
+    const timeStatus =
+      timeEstimate.hours <= platform.time.max_hours * 0.8
+        ? 'pass'
+        : timeEstimate.hours <= platform.time.max_hours
+          ? 'warn'
+          : 'fail'
     checks.push({
       check: 'Training Time',
       status: timeStatus,
-      message: timeStatus === 'fail'
-        ? `Estimated ${timeEstimate.hours.toFixed(1)}h exceeds ${platform.time.max_hours}h limit`
-        : timeStatus === 'warn'
-        ? `Estimated ${timeEstimate.hours.toFixed(1)}h is close to ${platform.time.max_hours}h limit`
-        : `Estimated ${timeEstimate.hours.toFixed(1)}h fits in ${platform.time.max_hours}h limit`,
+      message:
+        timeStatus === 'fail'
+          ? `Estimated ${timeEstimate.hours.toFixed(1)}h exceeds ${platform.time.max_hours}h limit`
+          : timeStatus === 'warn'
+            ? `Estimated ${timeEstimate.hours.toFixed(1)}h is close to ${platform.time.max_hours}h limit`
+            : `Estimated ${timeEstimate.hours.toFixed(1)}h fits in ${platform.time.max_hours}h limit`,
       details: args.verbose ? timeEstimate.breakdown : undefined,
     })
 
     // 4. Batch Size Recommendation
     if (gpuStatus === 'fail' && config.batch_size && config.batch_size > 2) {
-      const recommendedBatch = Math.max(1, Math.floor(config.batch_size * platform.gpu.vram_gb / gpuEstimate.peak_gb))
+      const recommendedBatch = Math.max(1, Math.floor((config.batch_size * platform.gpu.vram_gb) / gpuEstimate.peak_gb))
       checks.push({
         check: 'Recommendation',
         status: 'warn',
@@ -457,25 +488,44 @@ Use 'akk preflight platforms' to see available platforms.
     // 5. Checkpoint Space Recommendation
     if (diskStatus !== 'pass') {
       const currentLimit = config.save_total_limit || 3
-      if (currentLimit > 1) {
+      const modelSizeFp16 = MODEL_SIZES[config.model_name || '']?.size_gb || 2
+      const checkpointSizeWithOptimizer = modelSizeFp16 * 6 // model + optimizer in fp32
+      const checkpointSizeWithoutOptimizer = modelSizeFp16 * 2 // model only in fp32
+
+      // Only recommend save_only_model if it's not already enabled
+      if (!diskEstimate.save_only_model) {
         checks.push({
           check: 'Disk Recommendation',
+          status: 'fail',
+          message: `Checkpoint size ~${checkpointSizeWithOptimizer.toFixed(1)}GB includes optimizer states. Add: save_only_model=True`,
+          details: {
+            current_save_total_limit: currentLimit,
+            checkpoint_with_optimizer_gb: checkpointSizeWithOptimizer,
+            checkpoint_without_optimizer_gb: checkpointSizeWithoutOptimizer,
+            savings_gb: checkpointSizeWithOptimizer - checkpointSizeWithoutOptimizer,
+            note: 'HuggingFace Trainer saves optimizer states (2x model size) by default. Set save_only_model=True in TrainingArguments to save ~4GB per checkpoint for NLLB-600M.',
+            training_args_fix: 'Seq2SeqTrainingArguments(..., save_only_model=True)',
+          },
+        })
+      }
+
+      if (currentLimit > 1) {
+        checks.push({
+          check: 'Checkpoint Limit',
           status: 'warn',
-          message: `Reduce save_total_limit from ${currentLimit} to 1 (saves ~${(diskEstimate.peak_gb - diskEstimate.total_gb + (currentLimit - 1) * 2 * (MODEL_SIZES[config.model_name || '']?.size_gb || 2)).toFixed(1)}GB)`,
+          message: `Reduce save_total_limit from ${currentLimit} to 1`,
           details: {
             current_save_total_limit: currentLimit,
             recommended: 1,
-            checkpoint_size_gb: (MODEL_SIZES[config.model_name || '']?.size_gb || 2) * 2,
-            note: 'HuggingFace Trainer saves checkpoints in fp32 (2x model size)',
           },
         })
       }
     }
 
     // Summary
-    const failed = checks.filter(c => c.status === 'fail')
-    const warned = checks.filter(c => c.status === 'warn')
-    const passed = checks.filter(c => c.status === 'pass')
+    const failed = checks.filter((c) => c.status === 'fail')
+    const warned = checks.filter((c) => c.status === 'warn')
+    const passed = checks.filter((c) => c.status === 'pass')
 
     const overallStatus = failed.length > 0 ? 'fail' : warned.length > 0 ? 'warn' : 'pass'
 
@@ -492,14 +542,19 @@ Use 'akk preflight platforms' to see available platforms.
         epochs: config.num_epochs,
         fp16: config.fp16,
         save_total_limit: config.save_total_limit,
+        save_only_model: config.save_only_model,
       },
       checks,
-      recommendations: failed.length > 0 ? [
-        'Reduce batch_size and increase gradient_accumulation_steps to maintain effective batch',
-        'Reduce max_src_len/max_tgt_len if sequences are being heavily truncated anyway',
-        'Set save_total_limit=1 to minimize disk usage',
-        'Set dataloader_num_workers=0 to reduce memory overhead',
-      ] : undefined,
+      recommendations:
+        failed.length > 0
+          ? [
+              'Set save_only_model=True to skip optimizer states and save ~4GB per checkpoint',
+              'Set save_total_limit=1 to minimize disk usage',
+              'Reduce batch_size and increase gradient_accumulation_steps to maintain effective batch',
+              'Reduce max_src_len/max_tgt_len if sequences are being heavily truncated anyway',
+              'Set dataloader_num_workers=0 to reduce memory overhead',
+            ]
+          : undefined,
     })
   },
 }

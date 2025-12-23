@@ -5,13 +5,13 @@
  * This ensures reproducible notebook generation with explicit ML decisions.
  */
 
-import { z } from 'zod'
+import TOML from '@iarna/toml'
 import { existsSync, readFileSync } from 'fs'
 import { basename, dirname, join } from 'path'
-import TOML from '@iarna/toml'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
+import { z } from 'zod'
+import { error, success } from '../../lib/output'
 import { createTemplateEngine, PLATFORM_DISPLAY_NAMES } from '../../templates'
+import type { CommandDefinition } from '../../types/commands'
 import type { PlatformId } from '../../types/platform'
 import type { TemplateContext } from '../../types/template'
 
@@ -158,8 +158,12 @@ function generateNotebook(config: TrainingConfig, configPath: string): string {
 #   kaggle:
 #     accelerator: gpu
 #     dataSources:
-${dataSources.map(s => `#       - type: ${s.type}
-#         name: ${s.name}`).join('\n')}
+${dataSources
+  .map(
+    (s) => `#       - type: ${s.type}
+#         name: ${s.name}`
+  )
+  .join('\n')}
 #     docker_image: gcr.io/kaggle-gpu-images/python
 #     isGpuEnabled: true
 #     isInternetEnabled: true
@@ -274,6 +278,7 @@ CONFIG = {
 
     # Checkpoints
     "save_total_limit": ${config.checkpoints.save_total_limit},
+    "save_only_model": ${config.checkpoints.save_optimizer === false ? 'True' : 'False'},  # True = skip optimizer.pt (saves ~4GB per checkpoint)
     "load_best_at_end": ${config.checkpoints.load_best_at_end ? 'True' : 'False'},
 
     # Early stopping
@@ -307,7 +312,7 @@ for k, v in CONFIG.items():
 # %%
 # Dataset sources (in priority order)
 DATASET_SOURCES = [
-${dataSources.map(s => `    "${s.path}",`).join('\n')}
+${dataSources.map((s) => `    "${s.path}",`).join('\n')}
 ]
 
 train_df = None
@@ -424,6 +429,7 @@ training_args = Seq2SeqTrainingArguments(
     save_strategy="steps",
     save_steps=CONFIG["save_steps"],
     save_total_limit=CONFIG["save_total_limit"],
+    save_only_model=CONFIG["save_only_model"],  # Skip optimizer.pt to save disk space
     logging_steps=CONFIG["logging_steps"],
     load_best_model_at_end=CONFIG["load_best_at_end"],
     metric_for_best_model=CONFIG["metric_for_best_model"],
@@ -569,8 +575,8 @@ function generateMetadata(config: TrainingConfig, outputPath: string): Record<st
     enable_gpu: true,
     enable_tpu: false,
     enable_internet: true,
-    dataset_sources: dataSources.filter(s => s.type === 'dataset').map(s => s.name),
-    competition_sources: dataSources.filter(s => s.type === 'competition').map(s => s.name),
+    dataset_sources: dataSources.filter((s) => s.type === 'dataset').map((s) => s.name),
+    competition_sources: dataSources.filter((s) => s.type === 'competition').map((s) => s.name),
     kernel_sources: [],
     model_sources: [],
   }
@@ -634,10 +640,8 @@ Example config structure: see notebooks/kaggle/training.toml
     }
 
     // Determine output path
-    const outputPath = args.output || join(
-      dirname(args.path),
-      `${config.meta.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.py`
-    )
+    const outputPath =
+      args.output || join(dirname(args.path), `${config.meta.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.py`)
 
     // Generate notebook
     const notebook = generateNotebook(config, args.path)
@@ -675,12 +679,15 @@ Example config structure: see notebooks/kaggle/training.toml
     if (!args.skipPreflight) {
       // Import preflight dynamically to avoid circular deps
       const { preflight } = await import('../preflight')
-      preflightResult = await preflight.run({
-        path: outputPath,
-        platform: config.platform.target,
-        samples: 2000,
-        verbose: false,
-      }, ctx)
+      preflightResult = await preflight.run(
+        {
+          path: outputPath,
+          platform: config.platform.target,
+          samples: 2000,
+          verbose: false,
+        },
+        ctx
+      )
     }
 
     return success({
