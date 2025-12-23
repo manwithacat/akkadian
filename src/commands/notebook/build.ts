@@ -35,6 +35,15 @@ interface TrainingConfig {
       checkpoint: 'fp32' | 'fp16'
       mixed_precision: boolean
     }
+    /** Model source for loading pre-trained models */
+    source?: {
+      /** Source type: huggingface (default), kaggle, or local */
+      type: 'huggingface' | 'kaggle' | 'local'
+      /** Kaggle model handle (e.g., "username/model/framework/variation") */
+      handle?: string
+      /** Local path to model directory */
+      path?: string
+    }
   }
   data: {
     sources: string[]
@@ -150,6 +159,58 @@ function parseDataSource(source: string): { type: string; name: string; path: st
     name: basename(source),
     path: source,
   }
+}
+
+/**
+ * Generate model loading code based on source type
+ */
+function generateModelLoadingCode(config: TrainingConfig): string {
+  const sourceType = config.model.source?.type || 'huggingface'
+
+  if (sourceType === 'kaggle' && config.model.source?.handle) {
+    // Load from Kaggle Model Registry
+    return `# Install kagglehub for model registry
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kagglehub>=0.2.5"], check=True)
+import kagglehub
+
+# Download model from Kaggle registry
+kaggle_handle = "${config.model.source.handle}"
+print(f"\\nDownloading model from Kaggle: {kaggle_handle}")
+start = time.time()
+
+model_path = kagglehub.model_download(kaggle_handle)
+print(f"Model downloaded to: {model_path}")
+
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
+
+print(f"Model loaded in {time.time()-start:.1f}s")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")`
+  }
+
+  if (sourceType === 'local' && config.model.source?.path) {
+    // Load from local path
+    return `# Load model from local path
+local_model_path = "${config.model.source.path}"
+print(f"\\nLoading model from: {local_model_path}")
+start = time.time()
+
+tokenizer = AutoTokenizer.from_pretrained(local_model_path)
+model = AutoModelForSeq2SeqLM.from_pretrained(local_model_path)
+
+print(f"Model loaded in {time.time()-start:.1f}s")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")`
+  }
+
+  // Default: HuggingFace
+  return `print(f"\\nLoading model: {CONFIG['model_name']}")
+start = time.time()
+
+tokenizer = AutoTokenizer.from_pretrained(CONFIG["model_name"])
+model = AutoModelForSeq2SeqLM.from_pretrained(CONFIG["model_name"])
+
+print(f"Model loaded in {time.time()-start:.1f}s")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")`
 }
 
 /**
@@ -358,14 +419,7 @@ print(f"  After cleaning: {len(train_df)} samples")
 # ## Initialize Model
 
 # %%
-print(f"\\nLoading model: {CONFIG['model_name']}")
-start = time.time()
-
-tokenizer = AutoTokenizer.from_pretrained(CONFIG["model_name"])
-model = AutoModelForSeq2SeqLM.from_pretrained(CONFIG["model_name"])
-
-print(f"Model loaded in {time.time()-start:.1f}s")
-print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+${generateModelLoadingCode(config)}
 
 # %%
 # Clear HuggingFace cache to save disk space

@@ -3,57 +3,58 @@
  */
 
 import { z } from 'zod'
-import type { Command, CommandContext } from './types'
-import { defaultOutputOptions, write, error } from './lib/output'
-import { findConfigPath, loadConfig, getProjectRoot, defaultConfig } from './lib/config'
-
 // Import commands
 import {
-  version,
+  analyze,
+  cleanup,
+  colabStatus,
+  colabUploadNotebook,
+  competitionInit,
+  competitionStatus,
+  configure,
+  dataDownload,
+  dataExplore,
+  dataList,
+  dataRegister,
+  dataWrangler,
   doctor,
-  uploadNotebook,
-  uploadModel,
-  runKernel,
+  downloadArtifacts,
+  downloadModel,
   downloadOutput,
-  listKernels,
-  logs,
+  evaluate,
+  importRun,
+  infer,
   kaggleStatus,
   kaggleSubmissions,
-  configure,
-  downloadModel,
-  colabUploadNotebook,
-  colabStatus,
-  downloadArtifacts,
-  cleanup,
-  start,
-  log,
-  sync,
-  register,
-  evaluate,
-  infer,
-  analyze,
-  train,
-  prepare,
-  importRun,
+  listKernels,
   listRuns,
-  vertexSubmit,
-  vertexStatus,
-  vertexList,
+  log,
+  logs,
+  mcpServe,
+  mlflowRegister,
+  modelList,
+  modelRegister,
+  notebookBuild,
   preflight,
   preflightPlatforms,
   preflightValidate,
-  competitionInit,
-  competitionStatus,
+  prepare,
+  runKernel,
+  start,
+  sync,
   templateGenerate,
   templateList,
-  mcpServe,
-  dataDownload,
-  dataList,
-  dataRegister,
-  dataExplore,
-  dataWrangler,
-  notebookBuild,
+  train,
+  uploadModel,
+  uploadNotebook,
+  version,
+  vertexList,
+  vertexStatus,
+  vertexSubmit,
 } from './commands'
+import { defaultConfig, findConfigPath, getProjectRoot, loadConfig } from './lib/config'
+import { defaultOutputOptions, error, write } from './lib/output'
+import type { Command, CommandContext } from './types'
 
 // Command registry
 const commands: Record<string, Command> = {
@@ -79,7 +80,10 @@ const commands: Record<string, Command> = {
   'mlflow start': start,
   'mlflow log': log,
   'mlflow sync': sync,
-  'mlflow register': register,
+  'mlflow register': mlflowRegister,
+  // Model registry commands
+  'model list': modelList,
+  'model register': modelRegister,
   // Local commands
   'local evaluate': evaluate,
   'local infer': infer,
@@ -179,7 +183,24 @@ function parseArgs(argv: string[]): {
       if (!subcommand && !arg.startsWith('-')) {
         // Check if this could be a subcommand
         const potentialCmd = `${command} ${arg}`
-        if (commands[potentialCmd] || ['kaggle', 'colab', 'local', 'mlflow', 'workflow', 'vertex', 'preflight', 'competition', 'template', 'mcp', 'data', 'notebook'].includes(command)) {
+        if (
+          commands[potentialCmd] ||
+          [
+            'kaggle',
+            'colab',
+            'local',
+            'mlflow',
+            'model',
+            'workflow',
+            'vertex',
+            'preflight',
+            'competition',
+            'template',
+            'mcp',
+            'data',
+            'notebook',
+          ].includes(command)
+        ) {
           subcommand = arg
           i++
           continue
@@ -282,6 +303,9 @@ Commands:
   mlflow sync                  Sync runs from GCS to local
   mlflow register              Register model in Model Registry
 
+  model list                   List registered models from Kaggle registry
+  model register               Register a model in the local registry
+
   workflow train               End-to-end training workflow
   workflow prepare             Prepare notebook for Colab upload
   workflow list-runs           List training runs in GCS
@@ -334,9 +358,7 @@ Run 'akk <command> --help' for command-specific help.
 /**
  * Create command context
  */
-async function createContext(
-  globalOpts: z.infer<typeof GlobalOptions>
-): Promise<CommandContext> {
+async function createContext(globalOpts: z.infer<typeof GlobalOptions>): Promise<CommandContext> {
   const outputOpts = defaultOutputOptions()
 
   if (globalOpts.json) outputOpts.format = 'json'

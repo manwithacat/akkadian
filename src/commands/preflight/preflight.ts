@@ -458,6 +458,49 @@ kagglehub.model_upload(
   return results
 }
 
+/**
+ * Check if notebook downloads model from Kaggle Model Registry
+ *
+ * For fine-tuning or inference from a pre-trained model in Kaggle registry,
+ * the notebook should use kagglehub.model_download()
+ */
+function checkKaggleModelSource(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check for kagglehub model download
+  const modelDownloadPatterns = [/kagglehub\.model_download\s*\(/i, /model_download\s*\(\s*["']/i]
+
+  const hasModelDownload = modelDownloadPatterns.some((p) => p.test(content))
+
+  if (hasModelDownload) {
+    results.push({
+      check: 'Kaggle Model Source',
+      status: 'pass',
+      message: 'Model download from Kaggle registry detected',
+    })
+
+    // Also check that the handle format looks correct
+    const handleMatch = content.match(/model_download\s*\(\s*["']([^"']+)["']/i)
+    if (handleMatch) {
+      const handle = handleMatch[1]
+      const parts = handle.split('/')
+      if (parts.length < 4) {
+        results.push({
+          check: 'Kaggle Model Handle',
+          status: 'warn',
+          message: `Model handle "${handle}" may be incomplete`,
+          details: {
+            expected: 'username/model/framework/variation',
+            got: handle,
+          },
+        })
+      }
+    }
+  }
+
+  return results
+}
+
 // CLI command
 const PreflightArgs = z.object({
   path: z.string().describe('Path to notebook (.ipynb) or script (.py)'),
@@ -573,6 +616,10 @@ Use 'akk preflight platforms' to see available platforms.
       const modelRegistryResults = checkModelRegistry(content)
       checks.push(...modelRegistryResults)
     }
+
+    // 0.7. Kaggle Model Source Checks (detect model_download usage)
+    const kaggleSourceResults = checkKaggleModelSource(content)
+    checks.push(...kaggleSourceResults)
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)

@@ -34,7 +34,9 @@ export { analyze, evaluate, infer } from './local'
 // MCP commands
 export { mcpServe } from './mcp'
 // MLFlow commands
-export { log, register, start, sync } from './mlflow'
+export { log, register as mlflowRegister, start, sync } from './mlflow'
+// Model registry commands
+export { list as modelList, register as modelRegister } from './model'
 // Notebook commands
 export { notebookBuild } from './notebook'
 // Preflight commands
