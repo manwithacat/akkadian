@@ -641,6 +641,63 @@ const EVALUATE_METRICS_NEEDING_DOWNLOAD: Record<string, string[]> = {
 }
 
 /**
+ * Check for pip install with --no-deps flag
+ *
+ * Using --no-deps skips transitive dependencies which can cause
+ * ModuleNotFoundError at runtime. For example, sacrebleu requires
+ * portalocker, but --no-deps won't install it.
+ *
+ * Matches both shell syntax (!pip install) and subprocess syntax.
+ */
+function checkPipNoDeps(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Match various patterns of pip install with --no-deps:
+  // 1. Shell syntax: !pip install --no-deps
+  // 2. subprocess: subprocess.run([..."pip", "install"..."--no-deps"...])
+  // 3. String form: "pip install --no-deps"
+  const patterns = [
+    /!pip\s+install[^\n]*--no-deps[^\n]*/g, // Shell syntax
+    /pip[",\s]+install[^)\]]*--no-deps[^)\]]*/g, // subprocess or string
+    /["']--no-deps["'][,\s]*\][^\n]*pip/g, // --no-deps in list before pip
+  ]
+
+  const matches: string[] = []
+  for (const pattern of patterns) {
+    const found = content.match(pattern) || []
+    matches.push(...found)
+  }
+
+  // Also check for the specific subprocess pattern with --no-deps in array
+  if (/subprocess\.run\s*\([^)]*["']--no-deps["']/.test(content)) {
+    matches.push('subprocess.run with --no-deps')
+  }
+
+  // Check for pip install with --no-deps anywhere on the same logical line
+  if (/pip.*install.*--no-deps|--no-deps.*pip.*install/.test(content)) {
+    if (matches.length === 0) {
+      matches.push('pip install --no-deps detected')
+    }
+  }
+
+  if (matches.length > 0) {
+    results.push({
+      check: 'Pip No-Deps',
+      status: 'fail',
+      message: '--no-deps skips transitive dependencies, causing ModuleNotFoundError',
+      details: {
+        detected: matches.slice(0, 3), // Limit to first 3 matches
+        fix: 'Remove --no-deps flag to install all dependencies, or explicitly add missing deps',
+        example_error: "sacrebleu requires portalocker, but --no-deps won't install it",
+        recommendation: 'Use: pip install -q <packages>  (without --no-deps)',
+      },
+    })
+  }
+
+  return results
+}
+
+/**
  * Check for operations that require internet access
  *
  * When enable_internet=false in kernel-metadata.json:
@@ -1044,6 +1101,10 @@ Use 'akk preflight platforms' to see available platforms.
     const metadataPath = join(notebookDir, 'kernel-metadata.json')
     const internetResults = checkInternetDependencies(content, metadataPath)
     checks.push(...internetResults)
+
+    // 0.12. Pip --no-deps Check (causes missing transitive dependencies)
+    const pipNoDepsResults = checkPipNoDeps(content)
+    checks.push(...pipNoDepsResults)
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
