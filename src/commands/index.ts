@@ -22,9 +22,9 @@ export { doctor } from './doctor'
 export {
   downloadOutput,
   listKernels,
-  logStep as kaggleStatus,
   logs,
   runKernel,
+  status as kaggleStatus,
   submissions as kaggleSubmissions,
   uploadModel,
   uploadNotebook,
@@ -44,6 +44,6 @@ export { platforms as preflightPlatforms, preflight, validate as preflightValida
 export { templateGenerate, templateList } from './template'
 export { version } from './version'
 // Vertex AI commands
-export { list as vertexList, logStep as vertexStatus, submit as vertexSubmit } from './vertex'
+export { list as vertexList, status as vertexStatus, submit as vertexSubmit } from './vertex'
 // Workflow commands
 export { importRun, listRuns, prepare, train } from './workflow'
