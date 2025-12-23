@@ -118,6 +118,21 @@ interface TrainingConfig {
     /** License name (e.g., "Apache 2.0") */
     license?: string
   }
+  /** Submission generation config (for competition notebooks) */
+  submission?: {
+    /** Enable submission.csv generation (default: false) */
+    enabled: boolean
+    /** Test data source path (default: competition test.csv) */
+    test_source?: string
+    /** Column containing source text (default: auto-detect 'transliteration' or 'source') */
+    source_column?: string
+    /** Column containing row IDs (default: 'id') */
+    id_column?: string
+    /** Output column name (default: 'translation') */
+    output_column?: string
+    /** Inference batch size (default: training batch_size) */
+    batch_size?: number
+  }
 }
 
 /**
@@ -159,6 +174,264 @@ function parseDataSource(source: string): { type: string; name: string; path: st
     name: basename(source),
     path: source,
   }
+}
+
+/**
+ * Check if model is a T5/ByT5/mT5 variant (uses task prefix, not lang codes)
+ */
+function isT5Model(modelName: string): boolean {
+  const t5Patterns = ['t5', 'byt5', 'mt5', 'flan-t5', 'long-t5']
+  const lowerName = modelName.toLowerCase()
+  return t5Patterns.some((p) => lowerName.includes(p))
+}
+
+/**
+ * Generate model-specific tokenizer setup code
+ */
+function generateTokenizerSetup(config: TrainingConfig): string {
+  if (isT5Model(config.model.name)) {
+    // T5 models use task prefix, not lang codes
+    return `# T5/ByT5 uses task prefix for translation
+TASK_PREFIX = "translate Akkadian to English: "
+print(f"Using T5 task prefix: {TASK_PREFIX}")`
+  }
+
+  // NLLB models use lang codes
+  return `tokenizer.src_lang = CONFIG["src_lang"]
+tokenizer.tgt_lang = CONFIG["tgt_lang"]
+
+tgt_token_id = tokenizer.convert_tokens_to_ids(CONFIG["tgt_lang"])
+print(f"Target language token ID: {tgt_token_id}")`
+}
+
+/**
+ * Generate model-specific evaluation/inference code
+ */
+function generateEvalSampleCode(config: TrainingConfig): string {
+  const srcCol = config.data.source_column
+
+  if (isT5Model(config.model.name)) {
+    // T5 models use task prefix
+    return `for i, sample in enumerate(test_samples):
+    src = sample["${srcCol}"]
+    ref = sample["${config.data.target_column}"]
+
+    # T5: prepend task prefix
+    inputs = tokenizer(TASK_PREFIX + src, return_tensors="pt", max_length=CONFIG["max_src_len"], truncation=True)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=CONFIG["max_new_tokens"],
+            num_beams=CONFIG["num_beams"],
+            repetition_penalty=CONFIG["repetition_penalty"],
+            no_repeat_ngram_size=CONFIG["no_repeat_ngram_size"],
+        )
+
+    pred = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    print(f"\\n[{i}] SRC: {src[:80]}...")
+    print(f"    REF: {ref[:80]}...")
+    print(f"    OUT: {pred[:80]}...")`
+  }
+
+  // NLLB models use forced_bos_token_id
+  return `for i, sample in enumerate(test_samples):
+    src = sample["${srcCol}"]
+    ref = sample["${config.data.target_column}"]
+
+    inputs = tokenizer(src, return_tensors="pt", max_length=CONFIG["max_src_len"], truncation=True)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=CONFIG["max_new_tokens"],
+            num_beams=CONFIG["num_beams"],
+            forced_bos_token_id=tgt_token_id,
+            repetition_penalty=CONFIG["repetition_penalty"],
+            no_repeat_ngram_size=CONFIG["no_repeat_ngram_size"],
+        )
+
+    pred = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    print(f"\\n[{i}] SRC: {src[:80]}...")
+    print(f"    REF: {ref[:80]}...")
+    print(f"    OUT: {pred[:80]}...")`
+}
+
+/**
+ * Generate submission code for competition (loads test.csv, translates, saves submission.csv)
+ */
+function generateSubmissionCode(config: TrainingConfig): string {
+  if (!config.submission?.enabled) {
+    return ''
+  }
+
+  const testSource = config.submission.test_source || '/kaggle/input/**/test.csv'
+  const srcCol = config.submission.source_column || 'transliteration'
+  const idCol = config.submission.id_column || 'id'
+  const outCol = config.submission.output_column || 'translation'
+  const batchSize = config.submission.batch_size || config.training.batch_size
+
+  // Generate translate_batch function at module level (not nested in if block)
+  const translateBatchFn = isT5Model(config.model.name)
+    ? `def translate_batch(texts):
+    """Translate a batch of texts."""
+    # T5: prepend task prefix
+    inputs = tokenizer(
+        [TASK_PREFIX + t for t in texts],
+        max_length=CONFIG["max_src_len"],
+        truncation=True,
+        padding=True,
+        return_tensors="pt",
+    )
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=CONFIG["max_new_tokens"],
+            num_beams=CONFIG["num_beams"],
+            repetition_penalty=CONFIG["repetition_penalty"],
+            no_repeat_ngram_size=CONFIG["no_repeat_ngram_size"],
+        )
+
+    return tokenizer.batch_decode(outputs, skip_special_tokens=True)`
+    : `def translate_batch(texts):
+    """Translate a batch of texts."""
+    inputs = tokenizer(
+        texts,
+        max_length=CONFIG["max_src_len"],
+        truncation=True,
+        padding=True,
+        return_tensors="pt",
+    )
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=CONFIG["max_new_tokens"],
+            num_beams=CONFIG["num_beams"],
+            forced_bos_token_id=tgt_token_id,
+            repetition_penalty=CONFIG["repetition_penalty"],
+            no_repeat_ngram_size=CONFIG["no_repeat_ngram_size"],
+        )
+
+    return tokenizer.batch_decode(outputs, skip_special_tokens=True)`
+
+  return `
+# %% [markdown]
+# ## Generate Competition Submission
+
+# %%
+# Load test data
+test_files = glob.glob("${testSource}", recursive=True)
+print(f"Found test files: {test_files}")
+
+if not test_files:
+    print("WARNING: test.csv not found - skipping submission generation")
+    test_df = None
+else:
+    test_df = pd.read_csv(test_files[0])
+    print(f"Test samples: {len(test_df)}")
+    print(test_df.head())
+
+# %%
+# Define batch translation function
+${translateBatchFn}
+
+# %%
+if test_df is not None:
+    # Detect source column
+    source_col = "${srcCol}" if "${srcCol}" in test_df.columns else "source" if "source" in test_df.columns else test_df.columns[1]
+    sources = test_df[source_col].tolist()
+
+    print(f"\\nTranslating {len(sources)} test samples using column: {source_col}")
+
+    translations = []
+    batch_size = ${batchSize}
+    for i in range(0, len(sources), batch_size):
+        batch = sources[i:i+batch_size]
+        batch_translations = translate_batch(batch)
+        translations.extend(batch_translations)
+        if (i + batch_size) % 100 == 0 or i + batch_size >= len(sources):
+            print(f"  Translated {min(i + batch_size, len(sources))}/{len(sources)}")
+
+    print(f"Generated {len(translations)} translations")
+
+    # Create submission
+    id_col = "${idCol}" if "${idCol}" in test_df.columns else "id"
+    submission = pd.DataFrame({
+        id_col: test_df[id_col] if id_col in test_df.columns else range(len(translations)),
+        "${outCol}": translations
+    })
+
+    print("\\nSubmission preview:")
+    print(submission.head(10))
+
+    submission.to_csv("submission.csv", index=False)
+    print("\\nSaved submission.csv")
+
+    # Show sample translations
+    print("\\n=== Sample Test Translations ===")
+    for i in range(min(5, len(sources))):
+        print(f"\\n[{i}]")
+        print(f"SRC: {sources[i][:100]}...")
+        print(f"OUT: {translations[i][:100]}...")
+`
+}
+
+/**
+ * Generate model-specific preprocessing function
+ */
+function generatePreprocessFunction(config: TrainingConfig): string {
+  const srcCol = config.data.source_column
+  const tgtCol = config.data.target_column
+
+  if (isT5Model(config.model.name)) {
+    // T5 models need task prefix prepended to inputs
+    return `def preprocess_function(examples):
+    # T5/ByT5: prepend task prefix to inputs
+    inputs = [TASK_PREFIX + str(x) for x in examples["${srcCol}"]]
+    targets = [str(x) for x in examples["${tgtCol}"]]
+
+    model_inputs = tokenizer(
+        inputs,
+        max_length=CONFIG["max_src_len"],
+        truncation=True,
+        padding=False,
+    )
+
+    # Tokenize targets
+    labels = tokenizer(
+        targets,
+        max_length=CONFIG["max_tgt_len"],
+        truncation=True,
+        padding=False,
+    )
+
+    model_inputs["labels"] = labels["input_ids"]
+    return model_inputs`
+  }
+
+  // NLLB models use text_target parameter
+  return `def preprocess_function(examples):
+    inputs = examples["${srcCol}"]
+    targets = examples["${tgtCol}"]
+
+    # Modern tokenization API (as_target_tokenizer is deprecated)
+    model_inputs = tokenizer(
+        inputs,
+        text_target=targets,
+        max_length=CONFIG["max_src_len"],
+        truncation=True,
+        padding=False,
+    )
+
+    return model_inputs`
 }
 
 /**
@@ -337,6 +610,7 @@ CONFIG = {
     "learning_rate": ${config.training.learning_rate},
     "weight_decay": ${config.training.weight_decay},
     "warmup_ratio": ${config.training.warmup_ratio},
+    "lr_scheduler_type": "${config.training.scheduler?.name || 'linear'}",
 
     # Sequence lengths
     "max_src_len": ${config.data.preprocessing.max_src_len},
@@ -434,30 +708,13 @@ if CONFIG["clear_hf_cache"]:
         print("HF cache cleared to save disk space")
 
 # %%
-tokenizer.src_lang = CONFIG["src_lang"]
-tokenizer.tgt_lang = CONFIG["tgt_lang"]
-
-tgt_token_id = tokenizer.convert_tokens_to_ids(CONFIG["tgt_lang"])
-print(f"Target language token ID: {tgt_token_id}")
+${generateTokenizerSetup(config)}
 
 # %% [markdown]
 # ## Preprocessing
 
 # %%
-def preprocess_function(examples):
-    inputs = examples["${config.data.source_column}"]
-    targets = examples["${config.data.target_column}"]
-
-    # Modern tokenization API (as_target_tokenizer is deprecated)
-    model_inputs = tokenizer(
-        inputs,
-        text_target=targets,
-        max_length=CONFIG["max_src_len"],
-        truncation=True,
-        padding=False,
-    )
-
-    return model_inputs
+${generatePreprocessFunction(config)}
 
 # %%
 print("\\nPreparing datasets...")
@@ -490,6 +747,7 @@ training_args = Seq2SeqTrainingArguments(
     learning_rate=CONFIG["learning_rate"],
     weight_decay=CONFIG["weight_decay"],
     warmup_ratio=CONFIG["warmup_ratio"],
+    lr_scheduler_type=CONFIG.get("lr_scheduler_type", "linear"),
     fp16=CONFIG["fp16"],
     eval_strategy="steps",  # Modern API (evaluation_strategy is deprecated)
     eval_steps=CONFIG["eval_steps"],
@@ -618,29 +876,8 @@ model = model.to(device)
 
 test_samples = val_dataset.select(range(min(5, len(val_dataset))))
 
-for i, sample in enumerate(test_samples):
-    src = sample["${config.data.source_column}"]
-    ref = sample["${config.data.target_column}"]
-
-    inputs = tokenizer(src, return_tensors="pt", max_length=CONFIG["max_src_len"], truncation=True)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=CONFIG["max_new_tokens"],
-            num_beams=CONFIG["num_beams"],
-            forced_bos_token_id=tgt_token_id,
-            repetition_penalty=CONFIG["repetition_penalty"],
-            no_repeat_ngram_size=CONFIG["no_repeat_ngram_size"],
-        )
-
-    pred = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-    print(f"\\n[{i}] SRC: {src[:80]}...")
-    print(f"    REF: {ref[:80]}...")
-    print(f"    OUT: {pred[:80]}...")
-
+${generateEvalSampleCode(config)}
+${generateSubmissionCode(config)}
 # %%
 print("\\n" + "="*60)
 print("TRAINING COMPLETE")

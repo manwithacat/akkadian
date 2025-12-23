@@ -9,25 +9,31 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
 import { spawn } from 'child_process'
 import { join } from 'path'
-
+import { z } from 'zod'
 import {
-  getQuickReference,
-  getKnowledge,
-  getCommandHelp,
-  getWorkflow,
-  getPattern,
-  getErrorFix,
-  getPlatformInfo,
-  searchKnowledge,
-  formatQuickReference,
-  type LoadLevel,
-} from './knowledge'
-
-import { findCompetitionConfig, loadCompetitionConfig } from '../lib/config'
+  findCompetitionConfig,
+  findConfigPath,
+  getActiveCompetitionDir,
+  getProjectRoot,
+  loadCompetitionConfig,
+  loadConfig,
+  loadProjectConfig,
+} from '../lib/config'
 import { listRegisteredKernels } from '../lib/kernel-registry'
+import {
+  formatQuickReference,
+  getCommandHelp,
+  getErrorFix,
+  getKnowledge,
+  getPattern,
+  getPlatformInfo,
+  getQuickReference,
+  getWorkflow,
+  type LoadLevel,
+  searchKnowledge,
+} from './knowledge'
 
 /**
  * Run akk CLI command and return output
@@ -79,15 +85,58 @@ async function runAkkCommand(command: string): Promise<{
 }
 
 /**
+ * Fetch recent submissions from Kaggle API
+ */
+async function fetchKaggleSubmissions(competition?: string): Promise<unknown[] | null> {
+  try {
+    const slug = competition || 'deep-past-initiative-machine-translation'
+    const result = await runAkkCommand(`kaggle submissions --competition ${slug}`)
+    if (result.success && result.stdout) {
+      const data = JSON.parse(result.stdout)
+      return data?.data?.submissions?.slice(0, 5) || []
+    }
+  } catch {
+    // Ignore errors - this is best-effort
+  }
+  return null
+}
+
+/**
  * Get current project status
+ * Enhanced to provide useful context even without competition.toml
  */
 async function getProjectStatus(): Promise<Record<string, unknown>> {
-  const configPath = await findCompetitionConfig()
+  // Try to load project config (akk.toml) first for project root
+  const akkConfigPath = await findConfigPath()
+  const projectConfig = akkConfigPath ? await loadConfig(akkConfigPath) : null
 
+  // Try to find competition.toml from cwd first
+  let configPath = await findCompetitionConfig()
+
+  // If not found from cwd, try the active competition directory from akk.toml
+  if (!configPath && akkConfigPath && projectConfig) {
+    const projectRoot = getProjectRoot(akkConfigPath)
+    const activeCompDir = getActiveCompetitionDir(projectRoot, projectConfig)
+    configPath = await findCompetitionConfig(activeCompDir)
+  }
+
+  // Even without competition.toml, try to get useful info
   if (!configPath) {
+    // Fetch recent submissions from Kaggle API as fallback
+    const slug = projectConfig?.kaggle?.competition
+    const submissions = await fetchKaggleSubmissions(slug)
+
     return {
       hasCompetition: false,
-      message: 'No competition.toml found. Run "akk competition init" to set up.',
+      project: projectConfig
+        ? {
+            name: projectConfig.project?.name,
+            hasConfig: true,
+            competition: projectConfig.kaggle?.competition,
+          }
+        : null,
+      recentSubmissions: submissions,
+      hint: 'Run "akk competition init <slug>" to set up competition tracking',
     }
   }
 
@@ -148,9 +197,7 @@ export async function createServer(): Promise<McpServer> {
     'akk',
     'Run Akkadian CLI commands. Use "help" for command list.',
     {
-      command: z
-        .string()
-        .describe('CLI command to run (e.g., "doctor", "kaggle list-kernels", "help preflight")'),
+      command: z.string().describe('CLI command to run (e.g., "doctor", "kaggle list-kernels", "help preflight")'),
     },
     async ({ command }) => {
       // Handle help commands specially for token efficiency

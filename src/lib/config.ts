@@ -185,6 +185,15 @@ export async function loadConfig(configPath: string): Promise<AkkConfig | null> 
 }
 
 /**
+ * Load project config (akk.toml) from current directory or parents
+ */
+export async function loadProjectConfig(startDir: string = process.cwd()): Promise<AkkConfig | null> {
+  const configPath = await findConfigPath(startDir)
+  if (!configPath) return null
+  return loadConfig(configPath)
+}
+
+/**
  * Default configuration
  */
 export function defaultConfig(): AkkConfig {

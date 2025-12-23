@@ -42,6 +42,7 @@ interface ExtractedConfig {
   fp16?: boolean
   save_total_limit?: number
   save_only_model?: boolean
+  clear_hf_cache?: boolean
   dataloader_num_workers?: number
 }
 
@@ -90,6 +91,9 @@ function extractConfig(content: string): ExtractedConfig {
 
   // Save only model (skip optimizer states to save disk space)
   config.save_only_model = /["']?save_only_model["']?\s*[=:]\s*True/i.test(content)
+
+  // Clear HF cache after model load (frees disk space)
+  config.clear_hf_cache = /["']?clear_hf_cache["']?\s*[=:]\s*True/i.test(content)
 
   // Dataloader workers
   const workersMatch = content.match(/dataloader_num_workers\s*=\s*(\d+)/)
@@ -161,10 +165,12 @@ function estimateDiskUsage(config: ExtractedConfig): {
   breakdown: Record<string, number>
   peak_gb: number
   save_only_model: boolean
+  clear_hf_cache: boolean
 } {
   const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
   const modelSizeFp16 = modelInfo?.size_gb || 2.0
   const saveOnlyModel = config.save_only_model === true
+  const clearHfCache = config.clear_hf_cache === true
 
   // Model weights in checkpoint (fp32 = 2x fp16)
   const modelWeightsFp32 = modelSizeFp16 * 2
@@ -179,7 +185,10 @@ function estimateDiskUsage(config: ExtractedConfig): {
   const breakdown: Record<string, number> = {}
 
   // HuggingFace cache (model download - includes both pytorch and safetensors)
-  breakdown['hf_cache'] = modelSizeFp16 * 2.5 // Often downloads multiple formats
+  // If clear_hf_cache=True, this is cleared after model load and doesn't count toward peak
+  const hfCacheSize = modelSizeFp16 * 2.5
+  breakdown['hf_cache'] = clearHfCache ? 0 : hfCacheSize
+  breakdown['hf_cache_note'] = clearHfCache ? 0.01 : 0 // marker for cleared cache
 
   // Checkpoints at steady state (model + optimizer states)
   const saveLimit = config.save_total_limit || 3
@@ -207,7 +216,7 @@ function estimateDiskUsage(config: ExtractedConfig): {
   const steadyCheckpoints = (modelWeightsFp32 + optimizerStateSize) * saveLimit
   const peak_gb = total_gb - steadyCheckpoints + peakCheckpoints
 
-  return { total_gb, breakdown, peak_gb, save_only_model: saveOnlyModel }
+  return { total_gb, breakdown, peak_gb, save_only_model: saveOnlyModel, clear_hf_cache: clearHfCache }
 }
 
 /**
@@ -515,6 +524,85 @@ function checkProgressBarsDisabled(content: string): CheckResult[] {
 }
 
 /**
+ * Check for dataset column compatibility issues
+ *
+ * Training notebooks typically expect 'source' and 'target' columns,
+ * but datasets may have different column names (akkadian/english, akk/eng, etc.)
+ * This check ensures column mapping is present when needed.
+ */
+function checkDatasetColumns(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check if code expects 'source' and 'target' columns
+  const expectsSourceColumn = /\[["']source["']\]/.test(content)
+  const expectsTargetColumn = /\[["']target["']\]/.test(content)
+
+  // Check if code expects 'akkadian' and 'english' columns
+  const expectsAkkadianColumn = /\[["']akkadian["']\]/.test(content)
+  const expectsEnglishColumn = /\[["']english["']\]/.test(content)
+
+  // Check if there's column renaming/mapping
+  const hasColumnRename = /\.rename\s*\(\s*columns\s*=/.test(content)
+  const hasColumnMapping = /column_mapping\s*=/.test(content)
+  const hasColumnNormalization = hasColumnRename || hasColumnMapping
+
+  // Check for dataset sources referencing our datasets
+  const usesOraccDataset = /oracc-akkadian-english-parallel-corpus/.test(content)
+  const usesCompetitionData = /deep-past-initiative-machine-translation/.test(content)
+
+  // Issue 1: Code expects source/target but uses our dataset without column mapping
+  if (usesOraccDataset && expectsSourceColumn && !hasColumnNormalization && !expectsAkkadianColumn) {
+    results.push({
+      check: 'Dataset Columns',
+      status: 'fail',
+      message: 'Code expects source/target columns but ORACC dataset has akkadian/english',
+      details: {
+        fix: 'Add column mapping after loading CSV:\ncolumn_mapping = {"akkadian": "source", "english": "target"}\ndf = df.rename(columns=column_mapping)',
+        dataset: 'oracc-akkadian-english-parallel-corpus',
+        expected_columns: ['source', 'target'],
+        actual_columns: ['akkadian', 'english'],
+      },
+    })
+  }
+
+  // Issue 2: Using competition data (which has sample_submission format) for training
+  // Competition data has 'id' and 'translation' columns, not source/target
+  const usesWildcardCompetition = /\/kaggle\/input\/deep-past-initiative-machine-translation\/\*\.csv/.test(content)
+  if (usesWildcardCompetition && (expectsSourceColumn || expectsTargetColumn)) {
+    results.push({
+      check: 'Dataset Source',
+      status: 'warn',
+      message: 'Wildcard *.csv in competition dir may match sample_submission.csv (wrong format)',
+      details: {
+        fix: 'Use specific file path like train.csv instead of *.csv, or prioritize your curated dataset first',
+        current: '/kaggle/input/deep-past-initiative-machine-translation/*.csv',
+        suggestion: '/kaggle/input/deep-past-initiative-machine-translation/train.csv',
+      },
+    })
+  }
+
+  // Pass if using ORACC dataset with column normalization
+  if (usesOraccDataset && hasColumnNormalization) {
+    results.push({
+      check: 'Dataset Columns',
+      status: 'pass',
+      message: 'Dataset column mapping detected',
+    })
+  }
+
+  // Pass if directly using columns that match the dataset
+  if (usesOraccDataset && expectsAkkadianColumn && expectsEnglishColumn) {
+    results.push({
+      check: 'Dataset Columns',
+      status: 'pass',
+      message: 'Code uses akkadian/english columns matching ORACC dataset',
+    })
+  }
+
+  return results
+}
+
+/**
  * Check if notebook downloads model from Kaggle Model Registry
  *
  * For fine-tuning or inference from a pre-trained model in Kaggle registry,
@@ -681,6 +769,10 @@ Use 'akk preflight platforms' to see available platforms.
     const progressBarResults = checkProgressBarsDisabled(content)
     checks.push(...progressBarResults)
 
+    // 0.9. Dataset Column Checks (for training notebooks)
+    const datasetColumnResults = checkDatasetColumns(content)
+    checks.push(...datasetColumnResults)
+
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)
     const gpuStatus =
@@ -814,6 +906,7 @@ Use 'akk preflight platforms' to see available platforms.
         fp16: config.fp16,
         save_total_limit: config.save_total_limit,
         save_only_model: config.save_only_model,
+        clear_hf_cache: config.clear_hf_cache,
       },
       checks,
       recommendations:

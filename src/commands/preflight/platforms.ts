@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
 import { success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 /**
  * Platform resource profiles for pre-flight checks
@@ -17,11 +17,11 @@ export interface PlatformProfile {
   }
   memory: {
     system_gb: number
-    available_gb: number  // After OS/driver overhead
+    available_gb: number // After OS/driver overhead
   }
   disk: {
     total_gb: number
-    working_gb: number  // /kaggle/working or equivalent
+    working_gb: number // /kaggle/working or equivalent
   }
   time: {
     max_hours: number
@@ -51,16 +51,15 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     },
     disk: {
       total_gb: 73,
-      // IMPORTANT: /kaggle/working + HF cache share same writable partition
-      // Effective limit is ~5-10GB for outputs after HF cache downloads
-      // Being conservative to avoid disk space failures
-      working_gb: 10,
+      // Kaggle has ~20GB usable after system overhead
+      // HF cache is cleared after model load in our notebooks
+      working_gb: 20,
     },
     time: {
       max_hours: 9,
     },
     network: {
-      internet_enabled: true,  // Can be disabled per kernel
+      internet_enabled: true, // Can be disabled per kernel
     },
   },
 
@@ -69,7 +68,7 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     description: 'Kaggle GPU notebook with 2x Tesla T4',
     gpu: {
       name: 'Tesla T4',
-      vram_gb: 15,  // Per GPU
+      vram_gb: 15, // Per GPU
       cuda_compute: 7.5,
       tensor_cores: true,
       fp16_tflops: 65,
@@ -80,7 +79,8 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     },
     disk: {
       total_gb: 73,
-      working_gb: 10,  // Conservative estimate
+      // Same as P100 - HF cache cleared after model load
+      working_gb: 20,
     },
     time: {
       max_hours: 9,
@@ -106,7 +106,7 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
     },
     disk: {
       total_gb: 73,
-      working_gb: 10,  // Conservative estimate
+      working_gb: 10, // Conservative estimate
     },
     time: {
       max_hours: 9,
@@ -135,7 +135,7 @@ export const PLATFORMS: Record<string, PlatformProfile> = {
       working_gb: 50,
     },
     time: {
-      max_hours: 12,  // Can be less due to idle timeout
+      max_hours: 12, // Can be less due to idle timeout
     },
     network: {
       internet_enabled: true,
@@ -208,10 +208,7 @@ Lists all known platform profiles with their resource limits.
 
 Use these profile names with 'akk preflight check --platform <name>'.
 `,
-  examples: [
-    'akk preflight platforms',
-    'akk preflight platforms --json',
-  ],
+  examples: ['akk preflight platforms', 'akk preflight platforms --json'],
   args: PlatformsArgs,
 
   async run(args, ctx) {
