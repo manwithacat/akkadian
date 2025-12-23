@@ -32,8 +32,8 @@ tmp/
 temp/
 *.tmp
 
-# MLFlow local artifacts
-mlflow/
+# MLFlow local artifacts (root only, not src/commands/mlflow)
+/mlflow/
 
 # Local config (user-specific)
 akk.toml
