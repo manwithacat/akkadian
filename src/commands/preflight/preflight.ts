@@ -394,13 +394,81 @@ function checkSubmissionOutput(content: string): CheckResult[] {
   return results
 }
 
+/**
+ * Check if notebook uploads trained model to Kaggle Model Registry
+ *
+ * For training notebooks, models should be uploaded to Kaggle's registry using:
+ * - kagglehub.model_upload() for direct upload
+ * - Or saved as notebook output for manual publishing
+ */
+function checkModelRegistry(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check for kagglehub model upload
+  const modelUploadPatterns = [/kagglehub\.model_upload\s*\(/i, /model_upload\s*\(\s*handle\s*=/i]
+
+  const hasModelUpload = modelUploadPatterns.some((p) => p.test(content))
+
+  // Check for model save (trainer.save_model, model.save_pretrained, etc.)
+  const modelSavePatterns = [
+    /trainer\.save_model\s*\(/i,
+    /model\.save_pretrained\s*\(/i,
+    /\.save_model\s*\(/i,
+    /torch\.save\s*\(/i,
+  ]
+
+  const hasModelSave = modelSavePatterns.some((p) => p.test(content))
+
+  if (!hasModelSave) {
+    results.push({
+      check: 'Model Save',
+      status: 'fail',
+      message: 'No model save detected in training notebook',
+      details: {
+        fix: 'Add: trainer.save_model(output_dir) or model.save_pretrained(output_dir)',
+      },
+    })
+  } else if (!hasModelUpload) {
+    results.push({
+      check: 'Kaggle Model Registry',
+      status: 'warn',
+      message: 'Model is saved but not uploaded to Kaggle Model Registry',
+      details: {
+        fix: 'Add kagglehub.model_upload() to upload trained model to Kaggle registry',
+        example: `
+import kagglehub
+kagglehub.model_upload(
+    handle="username/model-name/transformers/v1",
+    local_model_dir=output_dir,
+    version_notes="Training run description",
+    license_name="Apache 2.0",
+)`,
+        note: 'Models in registry can be easily used in inference kernels',
+        docs: 'https://github.com/Kaggle/kagglehub',
+      },
+    })
+  } else {
+    results.push({
+      check: 'Kaggle Model Registry',
+      status: 'pass',
+      message: 'Model upload to Kaggle registry detected',
+    })
+  }
+
+  return results
+}
+
 // CLI command
 const PreflightArgs = z.object({
   path: z.string().describe('Path to notebook (.ipynb) or script (.py)'),
   platform: z.string().default('kaggle-p100').describe('Target platform profile'),
   samples: z.number().default(1500).describe('Estimated training samples'),
   verbose: z.boolean().default(false).describe('Show detailed breakdown'),
-  competition: z.boolean().default(false).describe('Check for competition submission format'),
+  competition: z.boolean().default(false).describe('Check for competition submission format (inference notebooks)'),
+  training: z
+    .boolean()
+    .default(false)
+    .describe('Check for training notebook requirements (model save, registry upload)'),
 })
 
 export const preflight: CommandDefinition<typeof PreflightArgs> = {
@@ -414,10 +482,14 @@ Analyzes a notebook or script to estimate:
 - Disk space requirements
 - Training time
 
-With --competition flag, also checks:
+With --competition flag (for inference notebooks), also checks:
 - submission.csv output is created
 - Correct columns (id, translation) are present
 - index=False is used in to_csv()
+
+With --training flag (for training notebooks), also checks:
+- Model is saved (trainer.save_model or model.save_pretrained)
+- Model is uploaded to Kaggle Model Registry (kagglehub.model_upload)
 
 Compares against platform limits (Kaggle P100, Colab, etc.) and reports
 potential issues before deployment.
@@ -426,7 +498,7 @@ Use 'akk preflight platforms' to see available platforms.
 `,
   examples: [
     'akk preflight check notebook.ipynb',
-    'akk preflight check training.py --platform kaggle-p100',
+    'akk preflight check training.py --platform kaggle-p100 --training',
     'akk preflight check notebook.ipynb --platform colab-pro --samples 3000',
     'akk preflight check notebook.ipynb --verbose',
     'akk preflight check inference.py --competition',
@@ -494,6 +566,12 @@ Use 'akk preflight platforms' to see available platforms.
     if (args.competition) {
       const submissionResults = checkSubmissionOutput(content)
       checks.push(...submissionResults)
+    }
+
+    // 0.6. Training Notebook Checks (if --training flag is set)
+    if (args.training) {
+      const modelRegistryResults = checkModelRegistry(content)
+      checks.push(...modelRegistryResults)
     }
 
     // 1. GPU Memory Check

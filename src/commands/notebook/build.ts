@@ -99,6 +99,16 @@ interface TrainingConfig {
     save_config: boolean
     save_length_config: boolean
   }
+  kaggle_model?: {
+    /** Kaggle model handle (e.g., "username/model-name") */
+    handle: string
+    /** Framework for the model (e.g., "transformers", "pytorch") */
+    framework: string
+    /** Variation name (e.g., "v1", "base") */
+    variation: string
+    /** License name (e.g., "Apache 2.0") */
+    license?: string
+  }
 }
 
 /**
@@ -509,7 +519,35 @@ with open(os.path.join(output_dir, "length_config.json"), "w") as f:
 
 print(f"\\nModel saved to: {output_dir}")
 print(f"Files: {os.listdir(output_dir)}")
+${
+  config.kaggle_model
+    ? `
+# %% [markdown]
+# ## Upload to Kaggle Model Registry
 
+# %%
+# Install kagglehub for model registry upload
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kagglehub>=0.2.5"], check=True)
+import kagglehub
+
+# Upload model to Kaggle registry
+kaggle_handle = "${config.kaggle_model.handle}/${config.kaggle_model.framework}/${config.kaggle_model.variation}"
+print(f"\\nUploading model to Kaggle: {kaggle_handle}")
+
+try:
+    kagglehub.model_upload(
+        handle=kaggle_handle,
+        local_model_dir=output_dir,
+        version_notes=f"${config.meta.name} v${config.meta.version} - trained on {dataset_type}",
+        license_name="${config.kaggle_model.license || 'Apache 2.0'}",
+    )
+    print(f"Model uploaded successfully to: kaggle.com/models/{kaggle_handle.rsplit('/', 2)[0]}")
+except Exception as e:
+    print(f"Warning: Model upload failed: {e}")
+    print("Model is still saved locally and can be uploaded manually")
+`
+    : ''
+}
 # %% [markdown]
 # ## Quick Evaluation
 
