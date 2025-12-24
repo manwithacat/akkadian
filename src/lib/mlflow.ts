@@ -2,6 +2,8 @@
  * MLFlow Client Wrapper
  */
 
+import { type CommandResult, cli, runCommand } from './process'
+
 export interface MLFlowConfig {
   trackingUri: string
   artifactLocation: string
@@ -32,19 +34,10 @@ export interface Metric {
 }
 
 /**
- * Run mlflow CLI command
+ * Run mlflow CLI command (using shared process utility)
  */
-async function runMlflow(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(['mlflow', ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const exitCode = await proc.exited
-
-  return { stdout, stderr, exitCode }
+async function runMlflow(args: string[]): Promise<CommandResult> {
+  return cli.mlflow(args)
 }
 
 /**
@@ -126,12 +119,8 @@ export async function startServer(config: MLFlowConfig): Promise<{
  */
 export async function stopServer(port: number): Promise<{ success: boolean; message: string }> {
   // Find process by port
-  const proc = Bun.spawn(['lsof', '-t', `-i:${port}`], {
-    stdout: 'pipe',
-  })
-
-  const stdout = await new Response(proc.stdout).text()
-  const pids = stdout.trim().split('\n').filter(Boolean)
+  const result = await runCommand('lsof', ['-t', `-i:${port}`])
+  const pids = result.stdout.trim().split('\n').filter(Boolean)
 
   if (pids.length === 0) {
     return { success: true, message: 'No MLFlow server running' }
@@ -139,7 +128,7 @@ export async function stopServer(port: number): Promise<{ success: boolean; mess
 
   // Kill processes
   for (const pid of pids) {
-    await Bun.spawn(['kill', pid]).exited
+    await runCommand('kill', [pid])
   }
 
   return { success: true, message: `Stopped ${pids.length} process(es)` }

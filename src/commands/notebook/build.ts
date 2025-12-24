@@ -17,7 +17,7 @@ import type { PlatformId } from '../../types/platform'
 import type { TemplateContext } from '../../types/template'
 
 /**
- * Training config schema matching training.toml structure
+ * Training/Inference config schema matching .toml structure
  */
 interface TrainingConfig {
   meta: {
@@ -25,15 +25,18 @@ interface TrainingConfig {
     description: string
     version: string
     template: string
+    /** Mode: "training" (default) or "inference" */
+    mode?: 'training' | 'inference'
   }
   model: {
     name: string
     src_lang: string
     tgt_lang: string
-    precision: {
-      training: 'fp32' | 'fp16' | 'bf16'
-      checkpoint: 'fp32' | 'fp16'
-      mixed_precision: boolean
+    precision?: {
+      training?: 'fp32' | 'fp16' | 'bf16'
+      checkpoint?: 'fp32' | 'fp16'
+      mixed_precision?: boolean
+      inference?: 'fp32' | 'fp16' | 'bf16'
     }
     /** Model source for loading pre-trained models */
     source?: {
@@ -45,19 +48,25 @@ interface TrainingConfig {
       path?: string
     }
   }
-  data: {
-    sources: string[]
+  /** Data config - required for training, optional for inference */
+  data?: {
+    sources?: string[]
     source_column: string
-    target_column: string
-    val_split: number
-    seed: number
-    preprocessing: {
+    target_column?: string
+    val_split?: number
+    seed?: number
+    preprocessing?: {
       max_src_len: number
       max_tgt_len: number
       dynamic_padding: boolean
     }
+    /** Test data path for inference mode */
+    test_source?: string
+    /** ID column for submission */
+    id_column?: string
   }
-  training: {
+  /** Training config - required for training mode */
+  training?: {
     num_epochs: number
     batch_size: number
     gradient_accumulation_steps: number
@@ -74,7 +83,8 @@ interface TrainingConfig {
       name: string
     }
   }
-  evaluation: {
+  /** Evaluation config - required for training mode */
+  evaluation?: {
     eval_steps: number
     save_steps: number
     logging_steps: number
@@ -86,7 +96,8 @@ interface TrainingConfig {
       patience: number
     }
   }
-  checkpoints: {
+  /** Checkpoint config - required for training mode */
+  checkpoints?: {
     save_total_limit: number
     save_optimizer: boolean
     load_best_at_end: boolean
@@ -113,10 +124,29 @@ interface TrainingConfig {
     handle: string
     /** Framework for the model (e.g., "transformers", "pytorch") */
     framework: string
-    /** Variation name (e.g., "v1", "base") */
-    variation: string
     /** License name (e.g., "Apache 2.0") */
     license?: string
+    // Note: variation is auto-derived from meta.version (e.g., 1.0.7 -> v1-0-7)
+
+    // Model-level metadata (for Kaggle usability score)
+    /** Brief subtitle (20-80 chars) */
+    subtitle?: string
+    /** Full model card description (markdown) */
+    description?: string
+    /** Data provenance/attribution */
+    provenance?: string
+
+    // Instance-level metadata
+    /** Brief overview of the model instance */
+    overview?: string
+    /** Usage examples and documentation (markdown) */
+    usage?: string
+    /** Whether the model can be fine-tuned */
+    fine_tunable?: boolean
+    /** List of training data sources */
+    training_data?: string[]
+    /** URL to the base model (e.g., HuggingFace) */
+    base_model_url?: string
   }
   /** Submission generation config (for competition notebooks) */
   submission?: {
@@ -327,6 +357,38 @@ function generateSubmissionCode(config: TrainingConfig): string {
 # ## Generate Competition Submission
 
 # %%
+import re
+
+def clean_translation(text):
+    """
+    Clean ORACC academic conventions from translation output.
+    These artifacts hurt scoring against clean English references.
+    """
+    # Remove indeterminate plural markers: "( s )" or "(s)"
+    text = re.sub(r'\\s*\\(\\s*s\\s*\\)', 's', text)
+
+    # Remove parenthesized alternatives: "( or another )" -> "or another"
+    text = re.sub(r'\\s*\\(\\s*(or|and)\\s+([^)]+)\\s*\\)\\s*', r' \\1 \\2 ', text)
+
+    # Remove parenthesized conjunctions alone: "( or )" "( and )" etc.
+    text = re.sub(r'\\s*\\(\\s*(or|and|i\\.e\\.|etc\\.)\\s*\\)\\s*', r' \\1 ', text)
+
+    # Remove Akkadian determinatives: (ki), (m), (f), (d), etc.
+    text = re.sub(r'\\s*\\(\\s*(ki|m|f|d|pl|sg|lú|giš|kur|uru)\\s*\\)', '', text, flags=re.IGNORECASE)
+
+    # Remove other short parentheticals that look like annotations
+    text = re.sub(r'\\s*\\(\\s*[a-z]{1,3}\\s*\\)', '', text)
+
+    # Normalize multiple spaces
+    text = re.sub(r'\\s+', ' ', text)
+
+    # Fix spacing around punctuation
+    text = re.sub(r'\\s+([.,;:!?])', r'\\1', text)
+    text = re.sub(r'([.,;:!?])(?=[A-Za-z])', r'\\1 ', text)
+
+    return text.strip()
+
+# %%
 # Load test data
 test_files = glob.glob("${testSource}", recursive=True)
 print(f"Found test files: {test_files}")
@@ -361,6 +423,10 @@ if test_df is not None:
             print(f"  Translated {min(i + batch_size, len(sources))}/{len(sources)}")
 
     print(f"Generated {len(translations)} translations")
+
+    # Clean translations (remove ORACC artifacts that hurt scoring)
+    translations = [clean_translation(t) for t in translations]
+    print("Cleaned ORACC artifacts from translations")
 
     # Create submission
     id_col = "${idCol}" if "${idCol}" in test_df.columns else "id"
@@ -442,8 +508,7 @@ function generateModelLoadingCode(config: TrainingConfig): string {
 
   if (sourceType === 'kaggle' && config.model.source?.handle) {
     // Load from Kaggle Model Registry
-    return `# Install kagglehub for model registry
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kagglehub>=0.2.5"], check=True)
+    return `# kagglehub is pre-installed on Kaggle
 import kagglehub
 
 # Download model from Kaggle registry
@@ -487,9 +552,253 @@ print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")`
 }
 
 /**
+ * Generate inference-only notebook from config
+ */
+function generateInferenceNotebook(config: TrainingConfig, configPath: string): string {
+  const timestamp = new Date().toISOString()
+  const testSource =
+    config.data?.test_source ||
+    config.submission?.test_source ||
+    '/kaggle/input/deep-past-initiative-machine-translation/test.csv'
+  const sourceColumn = config.data?.source_column || config.submission?.source_column || 'transliteration'
+  const idColumn = config.data?.id_column || config.submission?.id_column || 'id'
+  const outputColumn = config.submission?.output_column || 'translation'
+  const batchSize = config.submission?.batch_size || config.generation?.batch_size || 16
+  const useFp16 = config.model.precision?.inference === 'fp16'
+
+  // Determine model source
+  const modelSource = config.model.source?.type || 'huggingface'
+  const modelHandle = config.model.source?.handle || config.model.name
+
+  return `# ---
+# jupyter:
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+#   kaggle:
+#     accelerator: gpu
+#     dataSources:
+#       - type: competition
+#         name: deep-past-initiative-machine-translation
+#     docker_image: gcr.io/kaggle-gpu-images/python
+#     isGpuEnabled: true
+#     isInternetEnabled: false
+#     language: python
+#     sourceType: script
+# ---
+
+# %% [markdown]
+# # ${config.meta.name}
+#
+# ${config.meta.description}
+#
+# **Generated from**: \`${basename(configPath)}\`
+# **Version**: ${config.meta.version}
+# **Generated at**: ${timestamp}
+# **Mode**: Inference (submission)
+
+# %%
+import os
+import sys
+import time
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TQDM_DISABLE"] = "1"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+import torch
+import pandas as pd
+from tqdm import tqdm
+
+print(f"Python: {sys.version}")
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    torch.cuda.empty_cache()
+
+# %% [markdown]
+# ## Configuration
+
+# %%
+CONFIG = {
+    "model_source": "${modelSource}",
+    "model_handle": "${modelHandle}",
+    "test_source": "${testSource}",
+    "source_column": "${sourceColumn}",
+    "id_column": "${idColumn}",
+    "output_column": "${outputColumn}",
+    "batch_size": ${batchSize},
+    "num_beams": ${config.generation?.num_beams || 4},
+    "max_new_tokens": ${config.generation?.max_new_tokens || 256},
+    "use_fp16": ${useFp16 ? 'True' : 'False'},
+}
+print(f"Config: {CONFIG}")
+
+# %% [markdown]
+# ## Load Model from Registry
+
+# %%
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+${
+  modelSource === 'kaggle'
+    ? `
+# kagglehub is pre-installed on Kaggle
+import kagglehub
+
+print(f"\\nDownloading model from Kaggle: {CONFIG['model_handle']}")
+start = time.time()
+model_path = kagglehub.model_download(CONFIG["model_handle"])
+print(f"Downloaded in {time.time() - start:.1f}s to: {model_path}")
+
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_path${useFp16 ? ', torch_dtype=torch.float16' : ''})
+`
+    : `
+print(f"\\nLoading model: {CONFIG['model_handle']}")
+start = time.time()
+tokenizer = AutoTokenizer.from_pretrained(CONFIG["model_handle"])
+model = AutoModelForSeq2SeqLM.from_pretrained(CONFIG["model_handle"]${useFp16 ? ', torch_dtype=torch.float16' : ''})
+`
+}
+print(f"Model loaded in {time.time() - start:.1f}s")
+print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+model.eval()
+print(f"Model on: {device}")
+
+# %% [markdown]
+# ## Load Test Data
+
+# %%
+test_df = pd.read_csv(CONFIG["test_source"])
+print(f"Test samples: {len(test_df)}")
+print(f"Columns: {list(test_df.columns)}")
+print(f"\\nFirst few rows:")
+print(test_df.head())
+
+# %% [markdown]
+# ## Generate Translations
+
+# %%
+def clean_translation(text):
+    """Clean up translation output - remove ORACC academic conventions"""
+    import re
+    # Remove ( s ) plural markers
+    text = re.sub(r'\\s*\\(\\s*s\\s*\\)\\s*', 's ', text)
+    # Remove parenthesized conjunctions
+    text = re.sub(r'\\s*\\(\\s*(or|and)\\s*\\)\\s*', r' \\1 ', text)
+    # Remove determinatives like (ki), (d), (m), (f)
+    text = re.sub(r'\\s*\\(\\s*(ki|d|m|f|lu|munus)\\s*\\)\\s*', ' ', text)
+    # Clean up extra whitespace
+    text = ' '.join(text.split())
+    return text.strip()
+
+# %%
+print("\\n" + "="*60)
+print("GENERATING TRANSLATIONS")
+print("="*60)
+
+texts = test_df[CONFIG["source_column"]].tolist()
+ids = test_df[CONFIG["id_column"]].tolist()
+
+# Add task prefix for ByT5
+prefix = "translate Akkadian to English: "
+prefixed_texts = [prefix + t for t in texts]
+
+translations = []
+batch_size = CONFIG["batch_size"]
+start_time = time.time()
+
+for i in tqdm(range(0, len(prefixed_texts), batch_size), desc="Translating"):
+    batch = prefixed_texts[i:i+batch_size]
+
+    inputs = tokenizer(
+        batch,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            num_beams=CONFIG["num_beams"],
+            max_new_tokens=CONFIG["max_new_tokens"],
+            early_stopping=True
+        )
+
+    decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+    cleaned = [clean_translation(t) for t in decoded]
+    translations.extend(cleaned)
+
+    if (i // batch_size + 1) % 10 == 0:
+        print(f"  Batch {i//batch_size + 1}/{(len(prefixed_texts) + batch_size - 1)//batch_size}")
+
+elapsed = time.time() - start_time
+print(f"\\nGenerated {len(translations)} translations in {elapsed:.1f}s")
+print(f"Speed: {len(translations)/elapsed:.1f} samples/sec")
+
+# %% [markdown]
+# ## Sample Translations
+
+# %%
+print("\\n" + "="*60)
+print("SAMPLE TRANSLATIONS")
+print("="*60)
+for i in range(min(5, len(texts))):
+    print(f"\\n[{i+1}] Source: {texts[i][:100]}...")
+    print(f"    Translation: {translations[i]}")
+
+# %% [markdown]
+# ## Create Submission
+
+# %%
+submission = pd.DataFrame({
+    CONFIG["id_column"]: ids,
+    CONFIG["output_column"]: translations
+})
+print(f"\\nSubmission shape: {submission.shape}")
+print(submission.head())
+
+submission.to_csv("submission.csv", index=False)
+print(f"\\nSaved submission.csv")
+print(f"Columns: {list(submission.columns)}")
+
+# Verify file exists
+import os
+print(f"File size: {os.path.getsize('submission.csv'):,} bytes")
+
+# %%
+print("\\n" + "="*60)
+print("INFERENCE COMPLETE")
+print(f"Config: ${config.meta.name} v${config.meta.version}")
+print(f"Model: {CONFIG['model_handle']}")
+print(f"Samples: {len(translations)}")
+print(f"Time: {elapsed:.1f}s")
+print("="*60)
+`
+}
+
+/**
  * Generate Python notebook from training config
  */
 function generateNotebook(config: TrainingConfig, configPath: string): string {
+  // Check for inference mode
+  const mode = config.meta.mode || 'training'
+  if (mode === 'inference') {
+    return generateInferenceNotebook(config, configPath)
+  }
+
+  // Training mode - require data.sources
+  if (!config.data?.sources) {
+    throw new Error('Training mode requires data.sources. For inference, set meta.mode = "inference"')
+  }
+
   const dataSources = config.data.sources.map(parseDataSource)
   const timestamp = new Date().toISOString()
 
@@ -546,6 +855,12 @@ import torch
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import warnings
+
+# Suppress internal transformers deprecation warnings (past_key_values tuple format)
+# These are library-internal and will be fixed in future transformers versions
+warnings.filterwarnings("ignore", message=".*past_key_values.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
@@ -561,10 +876,17 @@ if torch.cuda.is_available():
 # ## Install Dependencies
 
 # %%
-packages = ["sentencepiece", "sacrebleu", "evaluate"]
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps"] + packages, check=True)
+${
+  config.submission?.enabled
+    ? `# Competition submission mode: internet disabled, use pre-installed packages only
+# Kaggle pre-installs: transformers, accelerate, sentencepiece, sacrebleu, datasets, etc.
+print("Using Kaggle pre-installed packages (internet disabled for submission)")`
+    : `# Install packages (internet enabled)
+packages = ["sentencepiece", "sacrebleu"]
+subprocess.run([sys.executable, "-m", "pip", "install", "-q"] + packages, check=True)
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "transformers>=4.35.0", "accelerate"], check=True)
-print("Packages installed")
+print("Packages installed")`
+}
 
 # %%
 from datasets import Dataset
@@ -576,7 +898,12 @@ from transformers import (
     DataCollatorForSeq2Seq,
     EarlyStoppingCallback,
 )
-import evaluate
+${
+  config.submission?.enabled
+    ? `# Note: sacrebleu not available offline - using eval_loss for model selection
+# Competition scoring will compute chrF on their end`
+    : `import sacrebleu  # Direct usage instead of evaluate.load() - works offline`
+}
 
 # %% [markdown]
 # ## Configuration
@@ -621,8 +948,8 @@ CONFIG = {
     "save_steps": ${config.evaluation.save_steps},
     "logging_steps": ${config.evaluation.logging_steps},
     "predict_with_generate": ${config.evaluation.predict_with_generate ? 'True' : 'False'},
-    "metric_for_best_model": "${config.evaluation.metric}",
-    "greater_is_better": ${config.evaluation.greater_is_better ? 'True' : 'False'},
+    "metric_for_best_model": "${config.submission?.enabled ? 'eval_loss' : config.evaluation.metric}",
+    "greater_is_better": ${config.submission?.enabled ? 'False' : config.evaluation.greater_is_better ? 'True' : 'False'},
 
     # Checkpoints
     "save_total_limit": ${config.checkpoints.save_total_limit},
@@ -732,6 +1059,28 @@ val_tokenized = val_dataset.map(preprocess_function, batched=True, remove_column
 
 print(f"Tokenized - Train: {len(train_tokenized)}, Val: {len(val_tokenized)}")
 
+${
+  config.submission?.enabled
+    ? `# %%
+# Submission mode: using eval_loss for model selection (sacrebleu not available offline)
+# Competition will score using chrF on their end
+compute_metrics = None`
+    : `# %%
+# Compute metrics using sacrebleu directly (no internet required)
+def compute_metrics(eval_preds):
+    preds, labels = eval_preds
+    # Replace -100 (ignored tokens) with pad token for decoding
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    # Strip whitespace
+    decoded_preds = [pred.strip() for pred in decoded_preds]
+    decoded_labels = [label.strip() for label in decoded_labels]
+    # Compute chrF using sacrebleu directly
+    chrf = sacrebleu.corpus_chrf(decoded_preds, [decoded_labels])
+    return {"chrf": chrf.score}`
+}
+
 # %% [markdown]
 # ## Training Setup
 
@@ -773,8 +1122,9 @@ trainer = Seq2SeqTrainer(
     args=training_args,
     train_dataset=train_tokenized,
     eval_dataset=val_tokenized,
-    tokenizer=tokenizer,
+    processing_class=tokenizer,  # Modern API (tokenizer= is deprecated in transformers>=4.46)
     data_collator=data_collator,
+    compute_metrics=compute_metrics,
     callbacks=callbacks,
 )
 
@@ -840,25 +1190,85 @@ ${
 # ## Upload to Kaggle Model Registry
 
 # %%
-# Install kagglehub for model registry upload
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kagglehub>=0.2.5"], check=True)
-import kagglehub
+import subprocess
+import json
 
-# Upload model to Kaggle registry
-kaggle_handle = "${config.kaggle_model.handle}/${config.kaggle_model.framework}/${config.kaggle_model.variation}"
-print(f"\\nUploading model to Kaggle: {kaggle_handle}")
+# Model version is embedded in model name (not using Kaggle's variation system)
+# e.g., akkadian-byt5-v1-0-10/transformers/default
+model_version = "v${config.meta.version.replace(/\./g, '-')}"
+owner_slug = "${config.kaggle_model.handle.split('/')[0]}"
+model_slug = "${config.kaggle_model.handle.split('/')[1]}-" + model_version
+instance_slug = "default"
+framework = "${config.kaggle_model.framework}"
 
-try:
-    kagglehub.model_upload(
-        handle=kaggle_handle,
-        local_model_dir=output_dir,
-        version_notes=f"${config.meta.name} v${config.meta.version} - trained on {dataset_type}",
-        license_name="${config.kaggle_model.license || 'Apache 2.0'}",
-    )
-    print(f"Model uploaded successfully to: kaggle.com/models/{kaggle_handle.rsplit('/', 2)[0]}")
-except Exception as e:
-    print(f"Warning: Model upload failed: {e}")
-    print("Model is still saved locally and can be uploaded manually")
+print(f"\\nPreparing model upload: {owner_slug}/{model_slug}/{framework}/{instance_slug}")
+
+# Create model-metadata.json (model-level metadata)
+model_metadata = {
+    "ownerSlug": owner_slug,
+    "title": f"${config.kaggle_model.handle.split('/')[1]}-{model_version}",
+    "slug": model_slug,
+    "subtitle": ${JSON.stringify(config.kaggle_model.subtitle || config.meta.description || '')},
+    "isPrivate": False,
+    "description": ${JSON.stringify(config.kaggle_model.description || `# ${config.meta.name}\n\n${config.meta.description || ''}`)},
+    "publishTime": "",
+    "provenanceSources": ${JSON.stringify(config.kaggle_model.provenance || '')}
+}
+
+model_metadata_path = os.path.join(output_dir, "model-metadata.json")
+with open(model_metadata_path, "w") as f:
+    json.dump(model_metadata, f, indent=2)
+print(f"Created: {model_metadata_path}")
+
+# Create model-instance-metadata.json (instance-level metadata)
+instance_metadata = {
+    "ownerSlug": owner_slug,
+    "modelSlug": model_slug,
+    "instanceSlug": instance_slug,
+    "framework": framework,
+    "overview": ${JSON.stringify(config.kaggle_model.overview || config.meta.description || '')},
+    "usage": ${JSON.stringify(config.kaggle_model.usage || '')},
+    "licenseName": "${config.kaggle_model.license || 'Apache 2.0'}",
+    "fineTunable": ${config.kaggle_model.fine_tunable ?? true},
+    "trainingData": ${JSON.stringify(config.kaggle_model.training_data || [])},
+    "modelInstanceType": "Unspecified",
+    "baseModelInstanceId": 0,
+    "externalBaseModelUrl": ${JSON.stringify(config.kaggle_model.base_model_url || '')}
+}
+
+instance_metadata_path = os.path.join(output_dir, "model-instance-metadata.json")
+with open(instance_metadata_path, "w") as f:
+    json.dump(instance_metadata, f, indent=2)
+print(f"Created: {instance_metadata_path}")
+
+# Step 1: Create the model (if it doesn't exist)
+print(f"\\nCreating model: {owner_slug}/{model_slug}")
+result = subprocess.run(
+    ["kaggle", "models", "create", "-p", output_dir],
+    capture_output=True, text=True
+)
+if result.returncode == 0:
+    print(f"Model created successfully")
+elif "already exists" in result.stderr.lower() or "already exists" in result.stdout.lower():
+    print(f"Model already exists, continuing with instance upload")
+else:
+    print(f"Model creation output: {result.stdout}")
+    if result.stderr:
+        print(f"Model creation stderr: {result.stderr}")
+
+# Step 2: Create the model instance
+print(f"\\nUploading instance: {owner_slug}/{model_slug}/{framework}/{instance_slug}")
+result = subprocess.run(
+    ["kaggle", "models", "instances", "create", "-p", output_dir],
+    capture_output=True, text=True
+)
+if result.returncode == 0:
+    print(f"Model uploaded successfully to: kaggle.com/models/{owner_slug}/{model_slug}")
+else:
+    print(f"Instance upload output: {result.stdout}")
+    if result.stderr:
+        print(f"Instance upload stderr: {result.stderr}")
+    print("Model is saved locally and can be uploaded manually")
 `
     : ''
 }
@@ -892,13 +1302,49 @@ print("="*60)
 
 /**
  * Generate Kaggle kernel metadata
+ *
+ * IMPORTANT: enable_internet must be FALSE for competition submission kernels.
+ * Kaggle runs scoring kernels with internet disabled, so any notebook that
+ * generates submission.csv must work offline.
  */
 function generateMetadata(config: TrainingConfig, outputPath: string): Record<string, unknown> {
-  const dataSources = config.data.sources.map(parseDataSource)
+  const mode = config.meta.mode || 'training'
+  const isInferenceMode = mode === 'inference'
+
   // Include version in slug for unique kernel per version (avoids Kaggle's versioning UX)
   const baseName = config.meta.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
   const version = config.meta.version.replace(/\./g, '-')
-  const slug = `${baseName}-v${version}`
+  // Add suffix: T for training, I for inference
+  const modeSuffix = isInferenceMode ? 'I' : 'T'
+  const slug = `${baseName}-v${version}-${modeSuffix}`
+
+  // Inference mode always has internet disabled (loads from Kaggle registry)
+  // Training submission kernels also need internet disabled
+  const isSubmissionKernel = config.submission?.enabled === true
+  const enableInternet = !isInferenceMode && !isSubmissionKernel
+
+  // Parse data sources for training mode, or use competition source for inference
+  let datasetSources: string[] = []
+  let competitionSources: string[] = []
+
+  if (isInferenceMode) {
+    // Inference mode: just needs competition test data
+    competitionSources = ['deep-past-initiative-machine-translation']
+  } else if (config.data?.sources) {
+    const dataSources = config.data.sources.map(parseDataSource)
+    datasetSources = dataSources.filter((s) => s.type === 'dataset').map((s) => s.name)
+    competitionSources = dataSources.filter((s) => s.type === 'competition').map((s) => s.name)
+  }
+
+  // Add model source if loading from Kaggle registry
+  const modelSources: string[] = []
+  if (config.model.source?.type === 'kaggle' && config.model.source.handle) {
+    // Extract model handle (owner/model-name from owner/model-name/framework/variation)
+    const parts = config.model.source.handle.split('/')
+    if (parts.length >= 2) {
+      modelSources.push(`${parts[0]}/${parts[1]}`)
+    }
+  }
 
   return {
     id: `manwithacat/${slug}`,
@@ -909,11 +1355,11 @@ function generateMetadata(config: TrainingConfig, outputPath: string): Record<st
     is_private: false,
     enable_gpu: true,
     enable_tpu: false,
-    enable_internet: true,
-    dataset_sources: dataSources.filter((s) => s.type === 'dataset').map((s) => s.name),
-    competition_sources: dataSources.filter((s) => s.type === 'competition').map((s) => s.name),
+    enable_internet: enableInternet,
+    dataset_sources: datasetSources,
+    competition_sources: competitionSources,
     kernel_sources: [],
-    model_sources: [],
+    model_sources: modelSources,
   }
 }
 
@@ -1024,9 +1470,12 @@ Example config structure: see notebooks/kaggle/training.toml
     await Bun.write(outputPath, notebook)
     await Bun.write(metadataPath, JSON.stringify(metadata, null, 2))
 
+    const mode = config.meta.mode || 'training'
+    const isInferenceMode = mode === 'inference'
+
     // Run preflight check
     let preflightResult = null
-    if (!args.skipPreflight) {
+    if (!args.skipPreflight && config.platform?.target) {
       // Import preflight dynamically to avoid circular deps
       const { preflight } = await import('../preflight')
       preflightResult = await preflight.run(
@@ -1035,15 +1484,17 @@ Example config structure: see notebooks/kaggle/training.toml
           platform: config.platform.target,
           samples: 2000,
           verbose: false,
-          training: true, // Training notebook - check for model save/upload
-          competition: false, // Not an inference notebook
+          training: !isInferenceMode, // Training notebook - check for model save/upload
+          competition: isInferenceMode, // Inference notebook - check for submission output
         },
         ctx
       )
     }
 
-    return success({
-      message: 'Notebook generated successfully',
+    // Build response based on mode
+    const response: Record<string, unknown> = {
+      message: `${isInferenceMode ? 'Inference' : 'Training'} notebook generated successfully`,
+      mode,
       config: {
         name: config.meta.name,
         version: config.meta.version,
@@ -1055,15 +1506,30 @@ Example config structure: see notebooks/kaggle/training.toml
       },
       model: {
         name: config.model.name,
-        precision: config.model.precision,
+        source: config.model.source?.type || 'huggingface',
+        handle: config.model.source?.handle,
       },
-      training: {
+      preflight: preflightResult?.success ? preflightResult.data : { skipped: true },
+    }
+
+    // Add training-specific info only for training mode
+    if (!isInferenceMode && config.training) {
+      response.training = {
         epochs: config.training.num_epochs,
         batch_size: config.training.batch_size,
         effective_batch: config.training.batch_size * config.training.gradient_accumulation_steps,
         learning_rate: config.training.learning_rate,
-      },
-      preflight: preflightResult?.success ? preflightResult.data : { skipped: true },
-    })
+      }
+    }
+
+    // Add inference-specific info for inference mode
+    if (isInferenceMode) {
+      response.inference = {
+        batch_size: config.submission?.batch_size || config.generation?.batch_size || 16,
+        internet_enabled: false,
+      }
+    }
+
+    return success(response)
   },
 }

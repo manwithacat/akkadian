@@ -6,6 +6,7 @@ import { basename, join } from 'path'
 import { z } from 'zod'
 import { download, getSize, listFiles, rsync } from '../../lib/gcs'
 import { error, logStep, progress, success } from '../../lib/output'
+import { directoryExists, ensureDir, runCommand } from '../../lib/process'
 import type { CommandDefinition } from '../../types/commands'
 
 const DownloadModelArgs = z.object({
@@ -52,11 +53,9 @@ Options:
 
     // Check if output exists
     if (!force) {
-      const dirCheck = Bun.spawn(['test', '-d', outDir])
-      if ((await dirCheck.exited) === 0) {
-        const files = Bun.spawn(['ls', '-A', outDir], { stdout: 'pipe' })
-        const output = await new Response(files.stdout).text()
-        if (output.trim()) {
+      if (await directoryExists(outDir)) {
+        const lsResult = await runCommand('ls', ['-A', outDir])
+        if (lsResult.stdout.trim()) {
           return error(
             'DIR_NOT_EMPTY',
             `Output directory is not empty: ${outDir}`,
@@ -81,7 +80,7 @@ Options:
     }
 
     // Create output directory
-    await Bun.spawn(['mkdir', '-p', outDir]).exited
+    await ensureDir(outDir)
 
     // Download
     logStep(
@@ -107,9 +106,8 @@ Options:
     }
 
     // List downloaded files
-    const lsProc = Bun.spawn(['ls', '-la', outDir], { stdout: 'pipe' })
-    const lsOutput = await new Response(lsProc.stdout).text()
-    const downloadedFiles = lsOutput
+    const lsResult = await runCommand('ls', ['-la', outDir])
+    const downloadedFiles = lsResult.stdout
       .trim()
       .split('\n')
       .slice(1)

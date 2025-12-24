@@ -3,8 +3,9 @@
  */
 
 import { z } from 'zod'
+import { error, success } from '../lib/output'
+import { commandExists, runCommand } from '../lib/process'
 import type { CommandDefinition } from '../types/commands'
-import { success, error } from '../lib/output'
 
 const DoctorArgs = z.object({})
 
@@ -17,16 +18,20 @@ interface CheckResult {
 
 async function checkCommand(name: string, args: string[] = ['--version']): Promise<CheckResult> {
   try {
-    const proc = Bun.spawn([name, ...args], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const output = await new Response(proc.stdout).text()
-    const exitCode = await proc.exited
+    // First check if command exists
+    if (!(await commandExists(name))) {
+      return {
+        name,
+        status: 'error',
+        message: 'Not found in PATH',
+      }
+    }
 
-    if (exitCode === 0) {
+    const result = await runCommand(name, args)
+
+    if (result.success) {
       // Extract version from output
-      const versionMatch = output.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1]
+      const versionMatch = result.stdout.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1]
       return {
         name,
         status: 'ok',
@@ -36,7 +41,7 @@ async function checkCommand(name: string, args: string[] = ['--version']): Promi
     return {
       name,
       status: 'error',
-      message: `Exit code: ${exitCode}`,
+      message: `Exit code: ${result.exitCode}`,
     }
   } catch (err) {
     return {

@@ -316,6 +316,23 @@ const DEPRECATION_CHECKS: DeprecationIssue[] = [
 function checkDeprecations(content: string): CheckResult[] {
   const results: CheckResult[] = []
 
+  // Special check for Seq2SeqTrainer tokenizer deprecation
+  // Look for trainer instantiation with tokenizer= but not processing_class=
+  const hasTrainerInstantiation = /=\s*Seq2SeqTrainer\s*\(/.test(content)
+  const hasOldTokenizerArg =
+    hasTrainerInstantiation &&
+    /Seq2SeqTrainer\s*\([\s\S]*?\btokenizer\s*=\s*tokenizer/.test(content) &&
+    !/Seq2SeqTrainer\s*\([\s\S]*?processing_class\s*=/.test(content)
+
+  if (hasOldTokenizerArg) {
+    results.push({
+      check: 'Deprecated API',
+      status: 'warn',
+      message: 'tokenizer= is deprecated in Seq2SeqTrainer (transformers>=4.46)',
+      details: { fix: 'Use processing_class=tokenizer instead of tokenizer=tokenizer' },
+    })
+  }
+
   for (const check of DEPRECATION_CHECKS) {
     if (check.pattern.test(content)) {
       results.push({
@@ -396,6 +413,82 @@ function checkSubmissionOutput(content: string): CheckResult[] {
       message: 'to_csv() may include unwanted index column',
       details: {
         fix: "Add index=False: df.to_csv('submission.csv', index=False)",
+      },
+    })
+  }
+
+  return results
+}
+
+/**
+ * Check for internet enabled with submission generation
+ *
+ * CRITICAL: Competition submission kernels are run by Kaggle with internet DISABLED.
+ * If enable_internet=true in kernel-metadata.json but the notebook generates submission.csv,
+ * the kernel will fail during Kaggle's scoring run.
+ *
+ * This is a common mistake: training with internet enabled works fine locally,
+ * but fails when Kaggle runs it for scoring.
+ */
+function checkSubmissionInternetMismatch(content: string, metadataPath?: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Check if notebook produces submission.csv
+  const submissionPatterns = [/\.to_csv\s*\(\s*["'].*submission\.csv["']/i, /submission.*\.to_csv/i]
+  const hasSubmissionOutput = submissionPatterns.some((p) => p.test(content))
+
+  if (!hasSubmissionOutput) {
+    return results // Not a submission kernel, no check needed
+  }
+
+  // Read kernel-metadata.json to check internet setting
+  if (!metadataPath || !existsSync(metadataPath)) {
+    results.push({
+      check: 'Submission Internet',
+      status: 'warn',
+      message: 'No kernel-metadata.json found - cannot verify enable_internet setting',
+      details: {
+        note: 'Competition submission kernels MUST have enable_internet: false',
+        fix: 'Generate metadata with: akk notebook build training.toml',
+      },
+    })
+    return results
+  }
+
+  try {
+    const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'))
+    const internetEnabled = metadata.enable_internet === true
+
+    if (internetEnabled) {
+      results.push({
+        check: 'Submission Internet',
+        status: 'fail',
+        message: 'enable_internet=true but notebook generates submission.csv - will FAIL on Kaggle scoring',
+        details: {
+          current: 'enable_internet: true',
+          required: 'enable_internet: false',
+          metadata_file: metadataPath,
+          fix: 'Edit kernel-metadata.json and set "enable_internet": false',
+          reason:
+            'Kaggle runs scoring kernels with internet disabled. Any pip install, evaluate.load(), or HuggingFace model download will fail.',
+          regenerate:
+            'Or regenerate with: akk notebook build training.toml (submission.enabled=true auto-sets internet=false)',
+        },
+      })
+    } else {
+      results.push({
+        check: 'Submission Internet',
+        status: 'pass',
+        message: 'enable_internet=false for submission kernel (correct)',
+      })
+    }
+  } catch {
+    results.push({
+      check: 'Submission Internet',
+      status: 'warn',
+      message: 'Failed to parse kernel-metadata.json',
+      details: {
+        metadata_file: metadataPath,
       },
     })
   }
@@ -605,6 +698,9 @@ function checkDatasetColumns(content: string): CheckResult[] {
 /**
  * Known packages pre-installed on Kaggle (as of Dec 2024)
  * These don't require pip install or internet access
+ *
+ * NOTE: sacrebleu and evaluate are NOT pre-installed!
+ * They require pip install which fails with enable_internet=false
  */
 const KAGGLE_PREINSTALLED = [
   'transformers',
@@ -616,8 +712,8 @@ const KAGGLE_PREINSTALLED = [
   'matplotlib',
   'seaborn',
   'nltk',
-  'sacrebleu', // Pre-installed on Kaggle!
-  'evaluate',
+  // 'sacrebleu',   // NOT pre-installed - requires pip install
+  // 'evaluate',    // NOT pre-installed - requires pip install
   'datasets',
   'accelerate',
   'sentencepiece',
@@ -729,42 +825,34 @@ function checkInternetDependencies(content: string, metadataPath?: string): Chec
     return results
   }
 
-  // Check for pip install commands
-  const pipInstallMatches = content.match(/!pip\s+install\s+([^\n]+)/g) || []
-  const pipInstalls = pipInstallMatches.map((m) => m.replace(/!pip\s+install\s+/, '').trim())
+  // Check for pip install commands (both shell-style and subprocess-style)
+  const shellPipInstalls = content.match(/!pip\s+install\s+[^\n]+/g) || []
+  const subprocessPipInstalls = content.match(/subprocess\.run\s*\([^)]*pip[^)]*install[^)]*\)/g) || []
+  const allPipInstalls = [...shellPipInstalls, ...subprocessPipInstalls]
 
-  // Filter out pre-installed packages
-  const problematicPipInstalls = pipInstalls.filter((pkg) => {
-    const basePkg = pkg
-      .split(/[<>=[\]]/)[0]
-      .trim()
-      .toLowerCase()
-    return !KAGGLE_PREINSTALLED.includes(basePkg)
-  })
-
-  if (problematicPipInstalls.length > 0) {
-    if (!internetEnabled) {
-      results.push({
-        check: 'Internet Required',
-        status: 'fail',
-        message: `pip install requires internet but enable_internet=false`,
-        details: {
-          packages: problematicPipInstalls,
-          fix: 'Either enable internet in kernel-metadata.json, or remove pip installs for non-preinstalled packages',
-          preinstalled: KAGGLE_PREINSTALLED,
-        },
-      })
-    } else {
-      results.push({
-        check: 'Internet Required',
-        status: 'warn',
-        message: `pip install found - will fail if internet is disabled for competition submission`,
-        details: {
-          packages: problematicPipInstalls,
-          note: 'Competition submission kernels typically require enable_internet=false',
-        },
-      })
-    }
+  // If internet is disabled and ANY pip install is detected, it will fail
+  if (!internetEnabled && allPipInstalls.length > 0) {
+    results.push({
+      check: 'Pip Install Blocked',
+      status: 'fail',
+      message: 'pip install will fail with enable_internet=false',
+      details: {
+        detected: allPipInstalls.slice(0, 3).map((s) => s.slice(0, 80) + '...'),
+        fix: 'Remove pip install commands - use Kaggle pre-installed packages instead',
+        preinstalled: KAGGLE_PREINSTALLED.slice(0, 10),
+        reason: 'Competition submission kernels run with internet disabled. pip install cannot reach PyPI.',
+      },
+    })
+  } else if (allPipInstalls.length > 0) {
+    // Internet enabled but warn about potential submission issues
+    results.push({
+      check: 'Pip Install',
+      status: 'warn',
+      message: 'pip install detected - will fail if used for competition submission',
+      details: {
+        note: 'Competition submissions require enable_internet=false',
+      },
+    })
   }
 
   // Check for evaluate.load() which downloads metrics from HuggingFace
@@ -825,12 +913,37 @@ function checkInternetDependencies(content: string, metadataPath?: string): Chec
 
   if (hubModels.length > 0 && !internetEnabled) {
     results.push({
-      check: 'Internet Required',
+      check: 'HuggingFace Download',
       status: 'fail',
       message: `HuggingFace model download requires internet but enable_internet=false`,
       details: {
         models: hubModels,
         fix: 'Use Kaggle Models instead:\n1. Upload model to Kaggle Model Registry\n2. Add to kernel-metadata.json model_sources\n3. Use: model_path = kagglehub.model_download("user/model/framework/version")',
+      },
+    })
+  }
+
+  // Also check for from_pretrained(CONFIG[...]) pattern - indirect HuggingFace loading
+  // This catches cases where model name is stored in config variable
+  const hasConfigModelLoad = /from_pretrained\s*\(\s*CONFIG\s*\[/.test(content)
+  const hasKaggleModelDownload = /kagglehub\.model_download/.test(content)
+  const hasLocalModelPath = /model_path\s*=\s*["']\.?\//.test(content)
+
+  // Extract model name from CONFIG if present
+  const configModelMatch = content.match(/["']model_name["']\s*:\s*["']([^"']+)["']/)
+  const configModelName = configModelMatch ? configModelMatch[1] : null
+  const isHubModel = configModelName && configModelName.includes('/') && !configModelName.startsWith('/')
+
+  if (!internetEnabled && hasConfigModelLoad && isHubModel && !hasKaggleModelDownload && !hasLocalModelPath) {
+    results.push({
+      check: 'HuggingFace Download',
+      status: 'fail',
+      message: `Model "${configModelName}" requires internet download but enable_internet=false`,
+      details: {
+        model: configModelName,
+        pattern: 'from_pretrained(CONFIG["model_name"])',
+        fix: 'For competition submission with internet disabled:\n1. First train with internet ON and upload model to Kaggle Model Registry\n2. Create inference notebook that loads from registry:\n   model_path = kagglehub.model_download("user/model/transformers/v1")\n   model = AutoModel.from_pretrained(model_path)',
+        alternative: 'Or set enable_internet=true (but cannot submit for scoring)',
       },
     })
   }
@@ -872,8 +985,8 @@ function checkComputeMetrics(content: string): CheckResult[] {
   // Check if compute_metrics is defined
   const hasComputeMetricsDef = /def\s+compute_metrics\s*\(/.test(content)
 
-  // Check if compute_metrics is passed to trainer
-  const hasComputeMetricsInTrainer = /Trainer\s*\([^)]*compute_metrics\s*=/.test(content)
+  // Check if compute_metrics is passed to trainer (handles multi-line calls)
+  const hasComputeMetricsInTrainer = /Trainer\s*\([\s\S]*?compute_metrics\s*=/.test(content)
 
   if (!hasComputeMetricsDef) {
     results.push({
@@ -1102,7 +1215,12 @@ Use 'akk preflight platforms' to see available platforms.
     const internetResults = checkInternetDependencies(content, metadataPath)
     checks.push(...internetResults)
 
-    // 0.12. Pip --no-deps Check (causes missing transitive dependencies)
+    // 0.12. Submission Internet Mismatch Check (CRITICAL)
+    // Catches: enable_internet=true with submission.csv output → will fail on Kaggle scoring
+    const submissionInternetResults = checkSubmissionInternetMismatch(content, metadataPath)
+    checks.push(...submissionInternetResults)
+
+    // 0.13. Pip --no-deps Check (causes missing transitive dependencies)
     const pipNoDepsResults = checkPipNoDeps(content)
     checks.push(...pipNoDepsResults)
 

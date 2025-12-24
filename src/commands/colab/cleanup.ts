@@ -8,10 +8,10 @@
  * - OPTIONAL: Keep best checkpoint if --keep-best-checkpoint
  */
 
-import { spawn } from 'child_process'
 import { z } from 'zod'
 import { deleteFile, exists, getSize, listFiles } from '../../lib/gcs'
 import { error, logStep, success, warn } from '../../lib/output'
+import { cli } from '../../lib/process'
 import type { CommandDefinition } from '../../types/commands'
 
 const CleanupArgs = z.object({
@@ -96,11 +96,8 @@ A typical v4 run was 48GB in GCS. After cleanup:
     } else if (args.all) {
       // List all runs in experiment
       const prefix = `gs://${bucket}/mlflow/runs/${experiment}/`
-      const proc = Bun.spawn(['gsutil', 'ls', prefix], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      const output = await new Response(proc.stdout).text()
+      const result = await cli.gsutil(['ls', prefix])
+      const output = result.stdout
 
       runs = output
         .trim()
@@ -135,11 +132,8 @@ A typical v4 run was 48GB in GCS. After cleanup:
       if (args.olderThan) {
         try {
           const statusPath = `${gcsBase}/status.json`
-          const proc = Bun.spawn(['gsutil', 'cat', statusPath], {
-            stdout: 'pipe',
-            stderr: 'pipe',
-          })
-          const statusText = await new Response(proc.stdout).text()
+          const result = await cli.gsutil(['cat', statusPath])
+          const statusText = result.stdout
           if (statusText) {
             const status = JSON.parse(statusText)
             if (status.updated_at) {
@@ -157,12 +151,8 @@ A typical v4 run was 48GB in GCS. After cleanup:
       }
 
       // List all files in run
-      const proc = Bun.spawn(['gsutil', 'ls', '-r', gcsBase + '/'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      const output = await new Response(proc.stdout).text()
-      const allFiles = output
+      const listResult = await cli.gsutil(['ls', '-r', gcsBase + '/'])
+      const allFiles = listResult.stdout
         .trim()
         .split('\n')
         .filter((line) => line.length > 0 && !line.endsWith(':'))
@@ -185,12 +175,8 @@ A typical v4 run was 48GB in GCS. After cleanup:
           deleted.push(file)
 
           // Get size if not dry run
-          const sizeProc = Bun.spawn(['gsutil', 'du', '-s', file], {
-            stdout: 'pipe',
-            stderr: 'pipe',
-          })
-          const sizeOutput = await new Response(sizeProc.stdout).text()
-          const sizeMatch = sizeOutput.match(/^(\d+)/)
+          const sizeResult = await cli.gsutil(['du', '-s', file])
+          const sizeMatch = sizeResult.stdout.match(/^(\d+)/)
           if (sizeMatch) {
             savedBytes += parseInt(sizeMatch[1], 10)
           }
@@ -202,11 +188,7 @@ A typical v4 run was 48GB in GCS. After cleanup:
         logStep({ step: 'deleting', message: `Deleting ${deleted.length} files...` }, ctx.output)
 
         for (const file of deleted) {
-          const delProc = Bun.spawn(['gsutil', 'rm', file], {
-            stdout: 'pipe',
-            stderr: 'pipe',
-          })
-          await delProc.exited
+          await cli.gsutil(['rm', file])
         }
 
         totalDeleted += deleted.length

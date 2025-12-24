@@ -3,6 +3,7 @@
  */
 
 import type { Subprocess } from 'bun'
+import { commandExists, runCommand } from './process'
 
 export interface DatasetteConfig {
   databases: string[]
@@ -15,31 +16,19 @@ export interface DatasetteConfig {
  * Check if datasette is installed
  */
 export async function checkDatasetteInstalled(): Promise<boolean> {
-  const proc = Bun.spawn(['which', 'datasette'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const exitCode = await proc.exited
-  return exitCode === 0
+  return commandExists('datasette')
 }
 
 /**
  * Get datasette version
  */
 export async function getDatasetteVersion(): Promise<string | null> {
-  const proc = Bun.spawn(['datasette', '--version'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
+  const result = await runCommand('datasette', ['--version'])
 
-  const stdout = await new Response(proc.stdout).text()
-  const exitCode = await proc.exited
-
-  if (exitCode !== 0) return null
+  if (!result.success) return null
 
   // Parse version from output like "datasette, version 0.64.5"
-  const match = stdout.match(/version\s+([\d.]+)/)
+  const match = result.stdout.match(/version\s+([\d.]+)/)
   return match ? match[1] : null
 }
 
@@ -75,25 +64,15 @@ export async function startDatasette(config: DatasetteConfig): Promise<{
  * Open URL in browser (macOS)
  */
 export async function openInBrowser(url: string): Promise<void> {
-  const proc = Bun.spawn(['open', url], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  await proc.exited
+  await runCommand('open', [url])
 }
 
 /**
  * Check if port is in use
  */
 export async function isPortInUse(port: number): Promise<boolean> {
-  const proc = Bun.spawn(['lsof', '-i', `:${port}`], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const exitCode = await proc.exited
-  return exitCode === 0
+  const result = await runCommand('lsof', ['-i', `:${port}`])
+  return result.success
 }
 
 /**

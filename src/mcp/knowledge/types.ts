@@ -32,8 +32,10 @@ export interface Workflow {
   id: string
   name: string
   description: string
-  when: string  // When to use this workflow
+  when: string // When to use this workflow
   steps: WorkflowStep[]
+  benefits?: string[] // Why use this workflow
+  why?: string[] // Explanation of the approach
 }
 
 /**
@@ -45,6 +47,9 @@ export interface Pattern {
   problem: string
   solution: string
   commands?: string[]
+  config?: string // Example configuration
+  metadata?: Record<string, string> // Metadata field descriptions
+  checks?: string[] // Validation checks performed
 }
 
 /**
@@ -63,11 +68,14 @@ export interface ErrorEntry {
 export interface ConfigRef {
   file: string
   description: string
-  schema: Record<string, {
-    type: string
-    description: string
-    default?: string
-  }>
+  schema: Record<
+    string,
+    {
+      type: string
+      description: string
+      default?: string
+    }
+  >
 }
 
 /**
@@ -81,7 +89,7 @@ export interface DomainKnowledge {
   // Quick reference - minimal tokens
   quick: {
     purpose: string
-    commands: string[]  // One-liner list: "akk doctor - Check environment"
+    commands: string[] // One-liner list: "akk doctor - Check environment"
   }
 
   // Full command reference
@@ -100,11 +108,14 @@ export interface DomainKnowledge {
   config: ConfigRef[]
 
   // Platform-specific notes
-  platforms: Record<string, {
-    name: string
-    limits: Record<string, string>
-    tips: string[]
-  }>
+  platforms: Record<
+    string,
+    {
+      name: string
+      limits: Record<string, string>
+      tips: string[]
+    }
+  >
 }
 
 /**
@@ -114,7 +125,7 @@ export interface QuickReference {
   name: string
   purpose: string
   commands: string[]
-  workflows: string[]  // Just workflow names
+  workflows: string[] // Just workflow names
 }
 
 /**

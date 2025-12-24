@@ -13,7 +13,8 @@ export const akkadianDK: DomainKnowledge = {
   description: 'CLI for ML workflows: Kaggle competitions, Colab training, MLflow tracking',
 
   quick: {
-    purpose: 'Manage ML training workflows across Kaggle, Colab, Vertex AI, and local environments with unified versioning and tracking.',
+    purpose:
+      'Manage ML training workflows across Kaggle, Colab, Vertex AI, and local environments with unified versioning and tracking.',
     commands: [
       'akk doctor - Check environment and dependencies',
       'akk kaggle upload-notebook <path> - Upload notebook with auto-versioning',
@@ -65,9 +66,7 @@ export const akkadianDK: DomainKnowledge = {
       description: 'Check kernel execution status (running, complete, error)',
       usage: 'akk kaggle status <user/kernel-name>',
       options: {},
-      examples: [
-        'akk kaggle status manwithacat/nllb-train-v1',
-      ],
+      examples: ['akk kaggle status manwithacat/nllb-train-v1'],
     },
     'kaggle submissions': {
       name: 'kaggle submissions',
@@ -78,11 +77,7 @@ export const akkadianDK: DomainKnowledge = {
         '--limit': 'Number of submissions (default: 10)',
         '--pending': 'Show only pending (being scored)',
       },
-      examples: [
-        'akk kaggle submissions',
-        'akk kaggle submissions --pending',
-        'akk kaggle submissions --limit 5',
-      ],
+      examples: ['akk kaggle submissions', 'akk kaggle submissions --pending', 'akk kaggle submissions --limit 5'],
     },
     'kaggle logs': {
       name: 'kaggle logs',
@@ -136,9 +131,7 @@ export const akkadianDK: DomainKnowledge = {
         '--skip-syntax': 'Skip Python syntax check',
         '--skip-security': 'Skip security scan',
       },
-      examples: [
-        'akk preflight validate train.py --platform kaggle-p100',
-      ],
+      examples: ['akk preflight validate train.py --platform kaggle-p100'],
     },
     'notebook build': {
       name: 'notebook build',
@@ -163,10 +156,7 @@ export const akkadianDK: DomainKnowledge = {
         '--run': 'Run name to check',
         '--watch': 'Continuously poll for updates',
       },
-      examples: [
-        'akk colab status --run nllb-v4',
-        'akk colab status --run nllb-v4 --watch',
-      ],
+      examples: ['akk colab status --run nllb-v4', 'akk colab status --run nllb-v4 --watch'],
     },
     'data download': {
       name: 'data download',
@@ -195,11 +185,7 @@ export const akkadianDK: DomainKnowledge = {
         '--mlflow': 'Show MLflow run linkages',
         '--verbose': 'Show full metadata',
       },
-      examples: [
-        'akk data list',
-        'akk data list --name raw',
-        'akk data list --source kaggle --mlflow',
-      ],
+      examples: ['akk data list', 'akk data list --name raw', 'akk data list --source kaggle --mlflow'],
     },
     'data register': {
       name: 'data register',
@@ -229,15 +215,56 @@ export const akkadianDK: DomainKnowledge = {
         '--port': 'Datasette port (default: 8001)',
         '--no-browser': 'Do not open browser',
       },
-      examples: [
-        'akk data explore',
-        'akk data explore --name raw',
-        'akk data explore --name v2_augmented --version 1',
-      ],
+      examples: ['akk data explore', 'akk data explore --name raw', 'akk data explore --name v2_augmented --version 1'],
     },
   },
 
   workflows: [
+    {
+      id: 'config-driven-training',
+      name: 'Config-Driven Training',
+      description: 'Generate deterministic notebooks from TOML config files',
+      when: 'Starting a new training run or iterating on hyperparameters',
+      steps: [
+        { action: 'Create/edit config', notes: 'Edit training.toml with model, data, hyperparameters' },
+        { action: 'Build notebook', command: 'akk notebook build training.toml' },
+        { action: 'Preflight validates automatically', notes: 'Checks GPU/disk/time against platform limits' },
+        { action: 'Push to Kaggle', command: 'kaggle kernels push' },
+        {
+          action: 'Model auto-uploads',
+          notes: 'Training notebook uploads to Kaggle Model Registry with rich metadata',
+        },
+      ],
+      benefits: [
+        'Single source of truth for all ML decisions',
+        'Automatic preflight validation catches errors before remote execution',
+        'Semver model naming (akkadian-byt5-v1-0-11) instead of confusing variations',
+        'Rich metadata maximizes Kaggle usability score',
+      ],
+    },
+    {
+      id: 'competition-submission',
+      name: 'Two-Stage Competition Submission',
+      description: 'Separate training (internet ON) from inference (internet OFF) for competitions',
+      when: 'Submitting to Kaggle competitions with internet restrictions',
+      steps: [
+        {
+          action: 'Training notebook',
+          notes: 'internet=ON, downloads from HuggingFace, uploads to Kaggle Model Registry',
+        },
+        { action: 'Wait for training', command: 'akk kaggle status <training-kernel>' },
+        {
+          action: 'Inference notebook',
+          notes: 'internet=OFF, loads from Kaggle registry via kagglehub.model_download()',
+        },
+        { action: 'Submit for scoring', notes: 'Inference kernel outputs submission.csv, competition scores it' },
+      ],
+      why: [
+        'Competition kernels must have internet=OFF to submit',
+        'HuggingFace from_pretrained() requires internet',
+        'Solution: Train with internet, upload model to registry, infer from registry without internet',
+      ],
+    },
     {
       id: 'kaggle-train',
       name: 'Kaggle Training',
@@ -287,8 +314,15 @@ export const akkadianDK: DomainKnowledge = {
         { action: 'Download competition data', command: 'akk data download' },
         { action: 'Explore raw data', command: 'akk data explore --name raw' },
         { action: 'Run ETL pipeline', notes: 'Create augmented/cleaned dataset' },
-        { action: 'Register derived dataset', command: 'akk data register ./output/augmented.csv --name v2_augmented --parent raw:1 --pipeline augmentation_v2' },
-        { action: 'Link to training run', command: 'akk data register ./data.db --name train_v3 --mlflow-run <run-id> --link-type training' },
+        {
+          action: 'Register derived dataset',
+          command:
+            'akk data register ./output/augmented.csv --name v2_augmented --parent raw:1 --pipeline augmentation_v2',
+        },
+        {
+          action: 'Link to training run',
+          command: 'akk data register ./data.db --name train_v3 --mlflow-run <run-id> --link-type training',
+        },
         { action: 'List all datasets', command: 'akk data list --mlflow' },
       ],
     },
@@ -299,7 +333,8 @@ export const akkadianDK: DomainKnowledge = {
       id: 'kernel-vs-submission',
       name: 'Kernel Status vs Submission Scoring',
       problem: 'Kernel complete but no score yet',
-      solution: 'Kernel execution and competition scoring are separate. Use kaggle status for kernel, kaggle submissions for scoring.',
+      solution:
+        'Kernel execution and competition scoring are separate. Use kaggle status for kernel, kaggle submissions for scoring.',
       commands: [
         'akk kaggle status <user/kernel> - Check if notebook finished running',
         'akk kaggle submissions --pending - Check if submission is being scored',
@@ -331,9 +366,7 @@ export const akkadianDK: DomainKnowledge = {
       name: 'Cross-Account Colab',
       problem: 'Colab account differs from GCS bucket owner',
       solution: 'Grant objectAdmin to Colab user or use service account',
-      commands: [
-        'gsutil iam ch user:<email>:objectAdmin gs://<bucket>',
-      ],
+      commands: ['gsutil iam ch user:<email>:objectAdmin gs://<bucket>'],
     },
     {
       id: 'dataset-lineage',
@@ -351,7 +384,8 @@ export const akkadianDK: DomainKnowledge = {
       id: 'transformers-deprecations',
       name: 'Fix Transformers Deprecations',
       problem: 'Training fails with TypeError on evaluation_strategy or as_target_tokenizer',
-      solution: 'Use modern API: eval_strategy instead of evaluation_strategy, tokenizer(text, text_target=target) instead of as_target_tokenizer()',
+      solution:
+        'Use modern API: eval_strategy instead of evaluation_strategy, tokenizer(text, text_target=target) instead of as_target_tokenizer()',
       commands: [
         'akk preflight check train.py - Detects deprecated APIs',
         'akk notebook build training.toml - Generates notebooks with modern APIs',
@@ -361,11 +395,75 @@ export const akkadianDK: DomainKnowledge = {
       id: 'disk-space-kaggle',
       name: 'Fix Kaggle Disk Space Errors',
       problem: 'Notebook fails with "disk space exceeded" on Kaggle',
-      solution: 'Kaggle has ~10GB effective disk. Checkpoints are fp32 (2x model size). Set save_total_limit=1, clear HF cache after model load.',
+      solution:
+        'Kaggle has ~10GB effective disk. Checkpoints are fp32 (2x model size). Set save_total_limit=1, clear HF cache after model load.',
       commands: [
         'akk preflight check train.py --platform kaggle-p100 --verbose - Check peak disk usage',
         'akk notebook build training.toml - Auto-configures disk optimizations',
       ],
+    },
+    {
+      id: 'training-toml-config',
+      name: 'Training TOML Configuration',
+      problem: 'Need reproducible, validated notebook generation',
+      solution: 'Use training.toml as single source of truth for all ML decisions',
+      config: `[meta]
+name = "byt5-akkadian"
+version = "1.0.11"  # Drives model name: akkadian-byt5-v1-0-11
+
+[model]
+name = "google/byt5-base"
+src_lang = "akk"
+tgt_lang = "eng"
+
+[training]
+num_epochs = 8
+batch_size = 2
+gradient_accumulation_steps = 4
+learning_rate = 2e-4
+
+[kaggle_model]
+handle = "username/model-name"
+framework = "transformers"
+subtitle = "Brief model description (20-80 chars)"
+description = "Full model card in markdown..."
+provenance = "Data sources and attribution"
+base_model_url = "https://huggingface.co/google/byt5-base"
+
+[submission]
+enabled = false  # true for inference notebooks`,
+      commands: ['akk notebook build training.toml - Generate notebook from config'],
+    },
+    {
+      id: 'kaggle-model-metadata',
+      name: 'Maximize Kaggle Usability Score',
+      problem: 'Model uploads have low usability score on Kaggle',
+      solution: 'Add rich metadata in training.toml [kaggle_model] section',
+      metadata: {
+        subtitle: 'Brief tagline (20-80 chars) - required for usability',
+        description: 'Full model card (markdown) with Summary, Characteristics, Training Data, Evaluation',
+        provenance: 'Data sources, licenses, attribution',
+        overview: 'Brief instance summary',
+        usage: 'Code examples showing how to load and use the model',
+        training_data: 'Array of training data sources',
+        base_model_url: 'Link to HuggingFace base model',
+        fine_tunable: 'Whether model can be fine-tuned (true/false)',
+      },
+      commands: [
+        'akk notebook build training.toml - Generates both model-metadata.json and model-instance-metadata.json',
+      ],
+    },
+    {
+      id: 'internet-submission-mismatch',
+      name: 'Fix Internet/Submission Mismatch',
+      problem: 'Competition submission fails or kernel runs but no score appears',
+      solution: 'Kaggle competition kernels MUST have internet=false. Use two-stage workflow.',
+      checks: [
+        'Preflight detects submission.csv output with internet=true',
+        'Preflight detects HuggingFace from_pretrained() with internet=false',
+        'Use training notebook (internet ON) + inference notebook (internet OFF)',
+      ],
+      commands: ['akk preflight check train.py - Catches internet/submission mismatches'],
     },
   ],
 
@@ -379,7 +477,8 @@ export const akkadianDK: DomainKnowledge = {
     {
       code: 'DISK_SPACE',
       message: 'Your notebook tried to use more disk space than is available',
-      cause: 'Kaggle has ~10GB effective disk. Checkpoints are fp32 (2x model size). Multiple checkpoints during rotation.',
+      cause:
+        'Kaggle has ~10GB effective disk. Checkpoints are fp32 (2x model size). Multiple checkpoints during rotation.',
       fix: 'Set save_total_limit=1, clear HF cache after model load, use akk notebook build for auto-optimization',
     },
     {
@@ -405,6 +504,30 @@ export const akkadianDK: DomainKnowledge = {
       message: 'No competition.toml found',
       cause: 'Not in a competition directory',
       fix: 'Run: akk competition init <slug>',
+    },
+    {
+      code: 'HUGGINGFACE_NO_INTERNET',
+      message: "OSError: We couldn't connect to 'https://huggingface.co'",
+      cause: 'Notebook uses from_pretrained() with HuggingFace model but internet is disabled',
+      fix: 'Use two-stage workflow: Training notebook (internet ON) uploads to Kaggle registry, Inference notebook (internet OFF) loads via kagglehub.model_download()',
+    },
+    {
+      code: 'SUBMISSION_INTERNET_ON',
+      message: 'Kernel completed but no competition score',
+      cause: 'Notebook outputs submission.csv but has internet=true. Competition submissions require internet=false.',
+      fix: 'Set enable_internet=false in kernel-metadata.json, or use akk notebook build with submission.enabled=true',
+    },
+    {
+      code: 'PIP_INSTALL_NO_INTERNET',
+      message: 'ERROR: No matching distribution found for <package>',
+      cause: 'pip install fails because internet is disabled',
+      fix: 'Use only Kaggle pre-installed packages when internet=false. sacrebleu/evaluate are NOT pre-installed.',
+    },
+    {
+      code: 'SACREBLEU_NOT_FOUND',
+      message: "ModuleNotFoundError: No module named 'sacrebleu'",
+      cause: 'sacrebleu is not pre-installed on Kaggle',
+      fix: 'For offline inference, use eval_loss instead of custom metrics. akk notebook build handles this automatically.',
     },
   ],
 
@@ -432,6 +555,32 @@ export const akkadianDK: DomainKnowledge = {
         'kaggle.username': { type: 'string', description: 'Kaggle username' },
         'colab.gcs_bucket': { type: 'string', description: 'GCS bucket for Colab' },
         'mlflow.port': { type: 'number', description: 'MLflow server port', default: '5001' },
+      },
+    },
+    {
+      file: 'training.toml',
+      description: 'Training notebook configuration (single source of truth for ML decisions)',
+      schema: {
+        'meta.name': { type: 'string', description: 'Notebook/model name' },
+        'meta.version': {
+          type: 'string',
+          description: 'Semver version (drives model naming: 1.0.11 → akkadian-byt5-v1-0-11)',
+        },
+        'model.name': { type: 'string', description: 'HuggingFace model name (e.g., google/byt5-base)' },
+        'training.num_epochs': { type: 'number', description: 'Training epochs', default: '8' },
+        'training.batch_size': { type: 'number', description: 'Batch size', default: '2' },
+        'training.gradient_accumulation_steps': { type: 'number', description: 'Gradient accumulation', default: '4' },
+        'training.learning_rate': { type: 'number', description: 'Learning rate', default: '2e-4' },
+        'kaggle_model.handle': { type: 'string', description: 'Kaggle model handle (e.g., username/model-name)' },
+        'kaggle_model.subtitle': { type: 'string', description: 'Model subtitle (20-80 chars for usability score)' },
+        'kaggle_model.description': { type: 'string', description: 'Full model card (markdown)' },
+        'kaggle_model.provenance': { type: 'string', description: 'Data provenance/attribution' },
+        'kaggle_model.base_model_url': { type: 'string', description: 'Link to HuggingFace base model' },
+        'submission.enabled': {
+          type: 'boolean',
+          description: 'Enable submission.csv generation (sets internet=false)',
+          default: 'false',
+        },
       },
     },
   ],

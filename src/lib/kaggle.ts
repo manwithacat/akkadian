@@ -2,6 +2,8 @@
  * Kaggle CLI Wrapper
  */
 
+import { type CommandResult, cli } from './process'
+
 export interface KernelMetadata {
   id: string
   title: string
@@ -33,19 +35,10 @@ export interface ModelMetadata {
 }
 
 /**
- * Run kaggle CLI command
+ * Run kaggle CLI command (using shared process utility)
  */
-async function runKaggle(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(['kaggle', ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const exitCode = await proc.exited
-
-  return { stdout, stderr, exitCode }
+async function runKaggle(args: string[]): Promise<CommandResult> {
+  return cli.kaggle(args)
 }
 
 /**
@@ -183,20 +176,13 @@ export async function convertToNotebook(
   pyPath: string,
   ipynbPath: string
 ): Promise<{ success: boolean; message: string }> {
-  const proc = Bun.spawn(['jupytext', '--to', 'notebook', '-o', ipynbPath, pyPath], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
+  const result = await cli.jupytext(['--to', 'notebook', '-o', ipynbPath, pyPath])
 
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const exitCode = await proc.exited
-
-  if (exitCode !== 0) {
-    return { success: false, message: stderr || stdout }
+  if (!result.success) {
+    return { success: false, message: result.stderr || result.stdout }
   }
 
-  return { success: true, message: stdout }
+  return { success: true, message: result.stdout }
 }
 
 /**

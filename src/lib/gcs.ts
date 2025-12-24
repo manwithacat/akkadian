@@ -2,41 +2,25 @@
  * Google Cloud Storage (gsutil) Wrapper
  */
 
+import { type CommandResult, cli } from './process'
+
 export interface GCSConfig {
   bucket: string
   project: string
 }
 
 /**
- * Run gsutil command
+ * Run gsutil command (using shared process utility)
  */
-async function runGsutil(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(['gsutil', ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const exitCode = await proc.exited
-
-  return { stdout, stderr, exitCode }
+async function runGsutil(args: string[]): Promise<CommandResult> {
+  return cli.gsutil(args)
 }
 
 /**
- * Run gcloud command
+ * Run gcloud command (using shared process utility)
  */
-async function runGcloud(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(['gcloud', ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const stdout = await new Response(proc.stdout).text()
-  const stderr = await new Response(proc.stderr).text()
-  const exitCode = await proc.exited
-
-  return { stdout, stderr, exitCode }
+async function runGcloud(args: string[]): Promise<CommandResult> {
+  return cli.gcloud(args)
 }
 
 /**
