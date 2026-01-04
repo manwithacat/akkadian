@@ -34,6 +34,62 @@ export interface ModelMetadata {
   provenanceSources?: string
 }
 
+export interface ModelInstanceMetadata {
+  ownerSlug: string
+  modelSlug: string
+  instanceSlug: string
+  framework: 'PyTorch' | 'TensorFlow' | 'JAX' | 'Flax' | 'Other'
+  overview: string
+  usage: string
+  licenseName: string
+  fineTunable: boolean
+  trainingData: string[]
+  // Valid Kaggle API values: unspecified, baseModel, external (NOT finetuned - use external with baseModelUrl)
+  modelInstanceType: 'unspecified' | 'baseModel' | 'external'
+  baseModelInstanceId?: number
+  externalBaseModelUrl?: string
+}
+
+/**
+ * Kaggle Model structure guidance for LLM agents
+ */
+export const MODEL_GUIDANCE = `
+## Kaggle Models vs Datasets
+
+Use **Kaggle Models** (not Datasets) for ML model weights:
+
+### Model Structure (3-tier hierarchy)
+1. **Model** - Top-level container (e.g., "nllb-akkadian")
+   - Metadata: title, subtitle, description, license
+   - Create once, contains multiple instances
+
+2. **Model Instance** - Framework-specific variant (e.g., "nllb-akkadian/pytorch/annotated-v1")
+   - Metadata: framework, overview, usage, license
+   - One per framework (PyTorch, TensorFlow, etc.)
+
+3. **Version** - Actual model files
+   - Upload new versions as you iterate
+   - Version notes for changelog
+
+### When to Use Models vs Datasets
+- **Models**: ML model weights, fine-tuned models, pre-trained models
+- **Datasets**: Training data, evaluation data, raw files
+
+### Kernel Reference
+\`\`\`json
+{
+  "model_sources": ["owner/model-name/framework/instance-slug"]
+}
+\`\`\`
+
+### Benefits of Models
+- Better discoverability (appears in Models section)
+- Proper versioning with notes
+- Framework metadata (PyTorch, TensorFlow, etc.)
+- License tracking
+- Provenance chain (base model references)
+`
+
 /**
  * Run kaggle CLI command (using shared process utility)
  */
@@ -109,9 +165,26 @@ export async function downloadKernelOutput(
 
 /**
  * List user's kernels
+ * @param user - Kaggle username
+ * @param sortBy - Sort order: 'dateRun' for most recent, 'hotness' for popular (default: 'dateRun')
+ * @param limit - Maximum number of kernels to return (default: 20)
  */
-export async function listKernels(user: string): Promise<string[]> {
-  const { stdout, exitCode } = await runKaggle(['kernels', 'list', '-m', '--user', user])
+export async function listKernels(
+  user: string,
+  sortBy: 'dateRun' | 'hotness' | 'dateCreated' = 'dateRun',
+  limit = 20
+): Promise<string[]> {
+  const { stdout, exitCode } = await runKaggle([
+    'kernels',
+    'list',
+    '-m',
+    '--user',
+    user,
+    '--sort-by',
+    sortBy,
+    '--page-size',
+    String(Math.min(limit, 200)), // Kaggle max is 200
+  ])
 
   if (exitCode !== 0) {
     return []
@@ -119,7 +192,10 @@ export async function listKernels(user: string): Promise<string[]> {
 
   // Parse kernel slugs from output
   const lines = stdout.trim().split('\n').slice(1) // Skip header
-  return lines.map((line) => line.split(/\s+/)[0]).filter(Boolean)
+  return lines
+    .map((line) => line.split(/\s+/)[0])
+    .filter(Boolean)
+    .slice(0, limit)
 }
 
 /**
@@ -149,18 +225,85 @@ export async function createModel(folder: string): Promise<{ success: boolean; m
 }
 
 /**
- * Create a new model instance (version)
+ * Create a new model instance (with initial version)
+ * Used when creating the first version of an instance
  */
 export async function createModelInstance(
   folder: string,
   notes?: string
 ): Promise<{ success: boolean; message: string }> {
-  const args = ['models', 'instance', 'create', '-p', folder]
+  const args = ['models', 'instances', 'create', '-p', folder]
   if (notes) {
     args.push('-n', notes)
   }
 
   const { stdout, stderr, exitCode } = await runKaggle(args)
+
+  if (exitCode !== 0) {
+    return { success: false, message: stderr || stdout }
+  }
+
+  return { success: true, message: stdout }
+}
+
+/**
+ * Create a new version of an existing model instance
+ * Format: owner/model-name/framework/instance-slug
+ */
+export async function createModelVersion(
+  instancePath: string,
+  folder: string,
+  notes?: string
+): Promise<{ success: boolean; message: string }> {
+  const args = ['models', 'instances', 'versions', 'create', instancePath, '-p', folder]
+  if (notes) {
+    args.push('-n', notes)
+  }
+
+  const { stdout, stderr, exitCode } = await runKaggle(args)
+
+  if (exitCode !== 0) {
+    return { success: false, message: stderr || stdout }
+  }
+
+  return { success: true, message: stdout }
+}
+
+/**
+ * Initialize model instance metadata template
+ */
+export async function initModelInstance(folder: string): Promise<{ success: boolean; message: string }> {
+  const { stdout, stderr, exitCode } = await runKaggle(['models', 'instances', 'init', '-p', folder])
+
+  if (exitCode !== 0) {
+    return { success: false, message: stderr || stdout }
+  }
+
+  return { success: true, message: stdout }
+}
+
+/**
+ * List user's models
+ */
+export async function listModels(user: string): Promise<{ success: boolean; message: string; models?: string[] }> {
+  const { stdout, stderr, exitCode } = await runKaggle(['models', 'list', '--owner', user])
+
+  if (exitCode !== 0) {
+    return { success: false, message: stderr || stdout }
+  }
+
+  // Parse model slugs from output
+  const lines = stdout.trim().split('\n').slice(1) // Skip header
+  const models = lines.map((line) => line.split(/\s+/)[0]).filter(Boolean)
+
+  return { success: true, message: stdout, models }
+}
+
+/**
+ * Get model instance files
+ */
+export async function getModelInstanceFiles(instancePath: string): Promise<{ success: boolean; message: string }> {
+  const { stdout, stderr, exitCode } = await runKaggle(['models', 'instances', 'files', instancePath])
 
   if (exitCode !== 0) {
     return { success: false, message: stderr || stdout }
@@ -241,7 +384,10 @@ export async function waitForKernel(
     await Bun.sleep(interval)
   }
 
-  return { status: 'error', failureMessage: 'Timeout waiting for kernel completion' }
+  return {
+    status: 'error',
+    failureMessage: 'Timeout waiting for kernel completion',
+  }
 }
 
 /**
@@ -324,4 +470,144 @@ export async function getCompetitionSubmissions(competition: string): Promise<Co
   }
 
   return submissions
+}
+
+/**
+ * Parse a Kaggle URL to extract kernel slug
+ *
+ * Supported formats:
+ * - https://www.kaggle.com/code/username/kernel-name
+ * - https://www.kaggle.com/code/username/kernel-name?scriptVersionId=123
+ * - https://kaggle.com/code/username/kernel-name
+ * - kaggle.com/code/username/kernel-name
+ */
+export function parseKaggleUrl(url: string): { slug: string; versionId?: string } | null {
+  // Normalize URL
+  let normalized = url.trim()
+  if (!normalized.startsWith('http')) {
+    normalized = `https://${normalized}`
+  }
+
+  try {
+    const parsed = new URL(normalized)
+
+    // Check if it's a kaggle.com URL
+    if (!parsed.hostname.includes('kaggle.com')) {
+      return null
+    }
+
+    // Extract path parts: /code/username/kernel-name
+    const pathParts = parsed.pathname.split('/').filter(Boolean)
+
+    if (pathParts.length >= 3 && pathParts[0] === 'code') {
+      const slug = `${pathParts[1]}/${pathParts[2]}`
+      const versionId = parsed.searchParams.get('scriptVersionId') || undefined
+
+      return { slug, versionId }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if a string looks like a Kaggle URL
+ */
+export function isKaggleUrl(input: string): boolean {
+  return input.includes('kaggle.com/code/') || input.includes('kaggle.com/code/')
+}
+
+/**
+ * Normalize input to kernel slug - handles both URLs and direct slugs
+ */
+export function normalizeKernelInput(input: string): { slug: string; versionId?: string } | null {
+  // If it looks like a URL, parse it
+  if (isKaggleUrl(input)) {
+    return parseKaggleUrl(input)
+  }
+
+  // If it's a direct slug (contains /)
+  if (input.includes('/') && !input.includes(' ')) {
+    return { slug: input }
+  }
+
+  return null
+}
+
+/**
+ * Running kernel info
+ */
+export interface RunningKernel {
+  slug: string
+  status: KernelStatus['status']
+  failureMessage?: string
+}
+
+/**
+ * List kernels with running status
+ * Checks status of recent kernels and returns those that are running/queued
+ *
+ * Note: Uses 'dateRun' sorting to find recently active kernels (most likely to be running)
+ * Checks up to 20 kernels by default for better coverage
+ */
+export async function listRunningKernels(user: string, limit = 20): Promise<RunningKernel[]> {
+  // Get recent kernels sorted by last run time
+  const kernelSlugs = await listKernels(user, 'dateRun', limit)
+
+  if (kernelSlugs.length === 0) {
+    return []
+  }
+
+  // Check status of each (in parallel for speed)
+  const results = await Promise.allSettled(
+    kernelSlugs.map(async (slug) => {
+      const status = await getKernelStatus(slug)
+      return { slug, ...status }
+    })
+  )
+
+  // Filter to running/queued
+  const running: RunningKernel[] = []
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      const { slug, status, failureMessage } = result.value
+      if (status === 'running' || status === 'queued') {
+        running.push({ slug, status, failureMessage })
+      }
+    }
+  }
+
+  return running
+}
+
+/**
+ * Get status of multiple kernels in parallel
+ */
+export async function getKernelStatuses(slugs: string[]): Promise<
+  Array<{
+    slug: string
+    status: KernelStatus['status']
+    failureMessage?: string
+  }>
+> {
+  const results = await Promise.allSettled(
+    slugs.map(async (slug) => {
+      const status = await getKernelStatus(slug)
+      return { slug, ...status }
+    })
+  )
+
+  return results
+    .filter(
+      (
+        r
+      ): r is PromiseFulfilledResult<{
+        slug: string
+        status: KernelStatus['status']
+        failureMessage?: string
+      }> => r.status === 'fulfilled'
+    )
+    .map((r) => r.value)
 }

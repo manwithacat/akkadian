@@ -22,6 +22,8 @@ export const akkadianDK: DomainKnowledge = {
       'akk kaggle submissions - List competition submissions and scores',
       'akk kaggle list-kernels - List kernel versions',
       'akk kaggle logs <slug> - Get kernel execution logs',
+      'akk kaggle list-running - List currently running/queued kernels',
+      'akk kaggle create-inference --model <handle> - Generate submission kernel',
       'akk colab upload-notebook <path> - Upload to GCS for Colab',
       'akk colab status --run <name> - Check training status',
       'akk colab download-artifacts --run <name> - Download results',
@@ -91,6 +93,38 @@ export const akkadianDK: DomainKnowledge = {
       examples: [
         'akk kaggle logs manwithacat/nllb-train-v1',
         'akk kaggle logs manwithacat/nllb-train-v1 --errors-only',
+      ],
+    },
+    'kaggle list-running': {
+      name: 'kaggle list-running',
+      description: 'List currently running or queued kernels on Kaggle',
+      usage: 'akk kaggle list-running [options]',
+      options: {
+        '--user': 'Kaggle username (default: from config)',
+      },
+      examples: ['akk kaggle list-running', 'akk kaggle list-running --user manwithacat'],
+    },
+    'kaggle create-inference': {
+      name: 'kaggle create-inference',
+      description: 'Generate complete inference kernel for competition submission with all constraints met',
+      usage: 'akk kaggle create-inference --model <handle> [options]',
+      options: {
+        '--model': 'Kaggle model handle (owner/model-name or full handle)',
+        '--name': 'Inference kernel name (default: derived from model)',
+        '--version': 'Version (default: extracted from model name)',
+        '--output': 'Output directory',
+        '--competition': 'Competition slug (default: from config)',
+        '--dry-run': 'Preview without writing files',
+      },
+      examples: [
+        'akk kaggle create-inference --model manwithacat/akkadian-byt5-v1-0-10',
+        'akk kaggle create-inference --model manwithacat/byt5-consonantal/transformers/default --name byt5-inference',
+        'akk kaggle create-inference --model manwithacat/akkadian-nllb-v1-2-0 --dry-run',
+      ],
+      notes: [
+        'Auto-detects model type (ByT5, NLLB, T5, Qwen, Gemma) and preprocessing requirements',
+        'Ensures all competition constraints: internet=OFF, kagglehub model loading, submission.csv output',
+        'Generates both notebook.py and kernel-metadata.json ready for kaggle kernels push',
       ],
     },
     'template generate': {
@@ -226,9 +260,18 @@ export const akkadianDK: DomainKnowledge = {
       description: 'Generate deterministic notebooks from TOML config files',
       when: 'Starting a new training run or iterating on hyperparameters',
       steps: [
-        { action: 'Create/edit config', notes: 'Edit training.toml with model, data, hyperparameters' },
-        { action: 'Build notebook', command: 'akk notebook build training.toml' },
-        { action: 'Preflight validates automatically', notes: 'Checks GPU/disk/time against platform limits' },
+        {
+          action: 'Create/edit config',
+          notes: 'Edit training.toml with model, data, hyperparameters',
+        },
+        {
+          action: 'Build notebook',
+          command: 'akk notebook build training.toml',
+        },
+        {
+          action: 'Preflight validates automatically',
+          notes: 'Checks GPU/disk/time against platform limits',
+        },
         { action: 'Push to Kaggle', command: 'kaggle kernels push' },
         {
           action: 'Model auto-uploads',
@@ -252,17 +295,34 @@ export const akkadianDK: DomainKnowledge = {
           action: 'Training notebook',
           notes: 'internet=ON, downloads from HuggingFace, uploads to Kaggle Model Registry',
         },
-        { action: 'Wait for training', command: 'akk kaggle status <training-kernel>' },
         {
-          action: 'Inference notebook',
-          notes: 'internet=OFF, loads from Kaggle registry via kagglehub.model_download()',
+          action: 'Monitor training',
+          command: 'akk kaggle list-running',
+          notes: 'Lists all running/queued kernels sorted by recent activity',
         },
-        { action: 'Submit for scoring', notes: 'Inference kernel outputs submission.csv, competition scores it' },
+        {
+          action: 'Wait for completion',
+          command: 'akk kaggle status <training-kernel>',
+        },
+        {
+          action: 'Generate inference kernel',
+          command: 'akk kaggle create-inference --model <owner/model-name>',
+          notes: 'Auto-generates notebook with all constraints met: internet=OFF, kagglehub loading, submission.csv',
+        },
+        {
+          action: 'Push inference kernel',
+          command: 'kaggle kernels push -p <output-dir>',
+        },
+        {
+          action: 'Submit for scoring',
+          notes: 'Inference kernel outputs submission.csv, competition scores it',
+        },
       ],
       why: [
         'Competition kernels must have internet=OFF to submit',
         'HuggingFace from_pretrained() requires internet',
         'Solution: Train with internet, upload model to registry, infer from registry without internet',
+        'akk kaggle create-inference auto-generates compliant notebooks',
       ],
     },
     {
@@ -271,11 +331,26 @@ export const akkadianDK: DomainKnowledge = {
       description: 'Train a model on Kaggle GPU',
       when: 'Training on Kaggle P100 or T4x2',
       steps: [
-        { action: 'Generate notebook', command: 'akk template generate training --platform kaggle-p100' },
-        { action: 'Validate notebook', command: 'akk preflight validate train.py --platform kaggle-p100' },
-        { action: 'Upload with versioning', command: 'akk kaggle upload-notebook train.py --model nllb-v4' },
-        { action: 'Monitor kernel', command: 'akk kaggle run-kernel <slug> --wait' },
-        { action: 'Download outputs', command: 'akk kaggle download-output <slug>' },
+        {
+          action: 'Generate notebook',
+          command: 'akk template generate training --platform kaggle-p100',
+        },
+        {
+          action: 'Validate notebook',
+          command: 'akk preflight validate train.py --platform kaggle-p100',
+        },
+        {
+          action: 'Upload with versioning',
+          command: 'akk kaggle upload-notebook train.py --model nllb-v4',
+        },
+        {
+          action: 'Monitor kernel',
+          command: 'akk kaggle run-kernel <slug> --wait',
+        },
+        {
+          action: 'Download outputs',
+          command: 'akk kaggle download-output <slug>',
+        },
       ],
     },
     {
@@ -284,12 +359,27 @@ export const akkadianDK: DomainKnowledge = {
       description: 'Train on Colab with GCS sync',
       when: 'Training on Colab Pro with A100 or longer sessions',
       steps: [
-        { action: 'Generate notebook', command: 'akk template generate training --platform colab-pro' },
-        { action: 'Upload to GCS', command: 'akk colab upload-notebook train.py --version v4' },
+        {
+          action: 'Generate notebook',
+          command: 'akk template generate training --platform colab-pro',
+        },
+        {
+          action: 'Upload to GCS',
+          command: 'akk colab upload-notebook train.py --version v4',
+        },
         { action: 'Open in Colab', notes: 'Open from GCS link' },
-        { action: 'Monitor progress', command: 'akk colab status --run nllb-v4 --watch' },
-        { action: 'Download artifacts', command: 'akk colab download-artifacts --run nllb-v4' },
-        { action: 'Import to MLflow', command: 'akk workflow import-run --run nllb-v4' },
+        {
+          action: 'Monitor progress',
+          command: 'akk colab status --run nllb-v4 --watch',
+        },
+        {
+          action: 'Download artifacts',
+          command: 'akk colab download-artifacts --run nllb-v4',
+        },
+        {
+          action: 'Import to MLflow',
+          command: 'akk workflow import-run --run nllb-v4',
+        },
       ],
     },
     {
@@ -298,11 +388,26 @@ export const akkadianDK: DomainKnowledge = {
       description: 'Iterate on model to improve competition score',
       when: 'Current score is not satisfactory',
       steps: [
-        { action: 'Analyze current results', command: 'akk local analyze --run <current>' },
-        { action: 'Compare with baseline', command: 'akk local analyze --run <current> --compare <baseline>' },
-        { action: 'Test translations', command: 'akk local infer --model ./models/<version> --interactive' },
-        { action: 'Adjust hyperparameters', notes: 'Based on analysis recommendations' },
-        { action: 'Train new version', notes: 'Use kaggle-train or colab-train workflow' },
+        {
+          action: 'Analyze current results',
+          command: 'akk local analyze --run <current>',
+        },
+        {
+          action: 'Compare with baseline',
+          command: 'akk local analyze --run <current> --compare <baseline>',
+        },
+        {
+          action: 'Test translations',
+          command: 'akk local infer --model ./models/<version> --interactive',
+        },
+        {
+          action: 'Adjust hyperparameters',
+          notes: 'Based on analysis recommendations',
+        },
+        {
+          action: 'Train new version',
+          notes: 'Use kaggle-train or colab-train workflow',
+        },
       ],
     },
     {
@@ -313,7 +418,10 @@ export const akkadianDK: DomainKnowledge = {
       steps: [
         { action: 'Download competition data', command: 'akk data download' },
         { action: 'Explore raw data', command: 'akk data explore --name raw' },
-        { action: 'Run ETL pipeline', notes: 'Create augmented/cleaned dataset' },
+        {
+          action: 'Run ETL pipeline',
+          notes: 'Create augmented/cleaned dataset',
+        },
         {
           action: 'Register derived dataset',
           command:
@@ -440,18 +548,75 @@ enabled = false  # true for inference notebooks`,
       problem: 'Model uploads have low usability score on Kaggle',
       solution: 'Add rich metadata in training.toml [kaggle_model] section',
       metadata: {
-        subtitle: 'Brief tagline (20-80 chars) - required for usability',
-        description: 'Full model card (markdown) with Summary, Characteristics, Training Data, Evaluation',
-        provenance: 'Data sources, licenses, attribution',
-        overview: 'Brief instance summary',
-        usage: 'Code examples showing how to load and use the model',
-        training_data: 'Array of training data sources',
-        base_model_url: 'Link to HuggingFace base model',
-        fine_tunable: 'Whether model can be fine-tuned (true/false)',
+        subtitle: 'Brief tagline (20-80 chars) - REQUIRED for usability score',
+        description: 'Full model card (markdown) with Summary, Characteristics, Training Data, Evaluation - REQUIRED',
+        provenance: 'Data sources, licenses, attribution - improves score',
+        overview: 'Brief instance summary - improves score',
+        usage: 'Code examples showing how to load and use the model - HIGHLY RECOMMENDED',
+        training_data: 'Array of training data sources - improves score',
+        base_model_url: 'Link to HuggingFace base model - improves score',
+        fine_tunable: 'Whether model can be fine-tuned (true/false) - improves score',
       },
       commands: [
         'akk notebook build training.toml - Generates both model-metadata.json and model-instance-metadata.json',
       ],
+      ai_agent_guidance: {
+        when_uploading_models: [
+          'ALWAYS include subtitle (20-80 chars) - this is the most visible field',
+          'ALWAYS include description with markdown model card',
+          'ALWAYS include usage examples showing how to load the model',
+          'Include provenance for data attribution and licensing',
+          'Set fine_tunable: true if the model can be further fine-tuned',
+        ],
+        description_template: `## Summary
+Brief 1-2 sentence description of what the model does.
+
+## Model Details
+- **Base model**: [link to HuggingFace model]
+- **Task**: Translation / Text generation / etc.
+- **Languages**: Source → Target
+- **Parameters**: XXM
+
+## Training Data
+- Dataset name and size
+- Any data preprocessing applied
+
+## Evaluation
+- Metrics achieved (BLEU, chrF, etc.)
+- Validation loss
+
+## Usage
+\`\`\`python
+import kagglehub
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+model_path = kagglehub.model_download("owner/model/framework/version")
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
+\`\`\`
+
+## Limitations
+Any known limitations or biases.`,
+        example_toml: `[kaggle_model]
+handle = "username/akkadian-byt5"
+framework = "transformers"
+subtitle = "ByT5 fine-tuned for Akkadian to English translation"
+description = """
+## Summary
+ByT5-small fine-tuned on 25K Akkadian-English parallel sentences.
+
+## Training Data
+- MTM24 Akkadian Transliterated (19.6K pairs)
+- ORACC Combined (5.7K pairs)
+
+## Metrics
+- Validation Loss: 0.95
+- Training: 12 epochs on Kaggle P100
+"""
+provenance = "MTM24 competition data (CC-BY), ORACC corpus (CC-BY-SA)"
+base_model_url = "https://huggingface.co/google/byt5-small"
+fine_tunable = true`,
+      },
     },
     {
       id: 'internet-submission-mismatch',
@@ -538,14 +703,25 @@ enabled = false  # true for inference notebooks`,
       schema: {
         'competition.name': { type: 'string', description: 'Competition name' },
         'competition.slug': { type: 'string', description: 'Competition slug' },
-        'competition.kaggle.username': { type: 'string', description: 'Kaggle username' },
+        'competition.kaggle.username': {
+          type: 'string',
+          description: 'Kaggle username',
+        },
         'competition.kaggle.kernel_versioning.strategy': {
           type: 'enum',
           description: 'semver | timestamp | experiment | overwrite',
           default: 'semver',
         },
-        'training.default_platform': { type: 'string', description: 'Default platform', default: 'kaggle-p100' },
-        'training.default_batch_size': { type: 'number', description: 'Batch size', default: '2' },
+        'training.default_platform': {
+          type: 'string',
+          description: 'Default platform',
+          default: 'kaggle-p100',
+        },
+        'training.default_batch_size': {
+          type: 'number',
+          description: 'Batch size',
+          default: '2',
+        },
       },
     },
     {
@@ -553,8 +729,15 @@ enabled = false  # true for inference notebooks`,
       description: 'Global CLI configuration',
       schema: {
         'kaggle.username': { type: 'string', description: 'Kaggle username' },
-        'colab.gcs_bucket': { type: 'string', description: 'GCS bucket for Colab' },
-        'mlflow.port': { type: 'number', description: 'MLflow server port', default: '5001' },
+        'colab.gcs_bucket': {
+          type: 'string',
+          description: 'GCS bucket for Colab',
+        },
+        'mlflow.port': {
+          type: 'number',
+          description: 'MLflow server port',
+          default: '5001',
+        },
       },
     },
     {
@@ -566,16 +749,50 @@ enabled = false  # true for inference notebooks`,
           type: 'string',
           description: 'Semver version (drives model naming: 1.0.11 → akkadian-byt5-v1-0-11)',
         },
-        'model.name': { type: 'string', description: 'HuggingFace model name (e.g., google/byt5-base)' },
-        'training.num_epochs': { type: 'number', description: 'Training epochs', default: '8' },
-        'training.batch_size': { type: 'number', description: 'Batch size', default: '2' },
-        'training.gradient_accumulation_steps': { type: 'number', description: 'Gradient accumulation', default: '4' },
-        'training.learning_rate': { type: 'number', description: 'Learning rate', default: '2e-4' },
-        'kaggle_model.handle': { type: 'string', description: 'Kaggle model handle (e.g., username/model-name)' },
-        'kaggle_model.subtitle': { type: 'string', description: 'Model subtitle (20-80 chars for usability score)' },
-        'kaggle_model.description': { type: 'string', description: 'Full model card (markdown)' },
-        'kaggle_model.provenance': { type: 'string', description: 'Data provenance/attribution' },
-        'kaggle_model.base_model_url': { type: 'string', description: 'Link to HuggingFace base model' },
+        'model.name': {
+          type: 'string',
+          description: 'HuggingFace model name (e.g., google/byt5-base)',
+        },
+        'training.num_epochs': {
+          type: 'number',
+          description: 'Training epochs',
+          default: '8',
+        },
+        'training.batch_size': {
+          type: 'number',
+          description: 'Batch size',
+          default: '2',
+        },
+        'training.gradient_accumulation_steps': {
+          type: 'number',
+          description: 'Gradient accumulation',
+          default: '4',
+        },
+        'training.learning_rate': {
+          type: 'number',
+          description: 'Learning rate',
+          default: '2e-4',
+        },
+        'kaggle_model.handle': {
+          type: 'string',
+          description: 'Kaggle model handle (e.g., username/model-name)',
+        },
+        'kaggle_model.subtitle': {
+          type: 'string',
+          description: 'Model subtitle (20-80 chars for usability score)',
+        },
+        'kaggle_model.description': {
+          type: 'string',
+          description: 'Full model card (markdown)',
+        },
+        'kaggle_model.provenance': {
+          type: 'string',
+          description: 'Data provenance/attribution',
+        },
+        'kaggle_model.base_model_url': {
+          type: 'string',
+          description: 'Link to HuggingFace base model',
+        },
         'submission.enabled': {
           type: 'boolean',
           description: 'Enable submission.csv generation (sets internet=false)',

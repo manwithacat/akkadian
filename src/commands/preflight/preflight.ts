@@ -10,7 +10,11 @@ import { PLATFORMS, type PlatformProfile } from './platforms'
  */
 const MODEL_SIZES: Record<string, { params_b: number; size_gb: number; name: string }> = {
   // NLLB models
-  'facebook/nllb-200-distilled-600M': { params_b: 0.6, size_gb: 1.2, name: 'NLLB-600M' },
+  'facebook/nllb-200-distilled-600M': {
+    params_b: 0.6,
+    size_gb: 1.2,
+    name: 'NLLB-600M',
+  },
   'facebook/nllb-200-1.3B': { params_b: 1.3, size_gb: 2.6, name: 'NLLB-1.3B' },
   'facebook/nllb-200-3.3B': { params_b: 3.3, size_gb: 6.6, name: 'NLLB-3.3B' },
 
@@ -105,7 +109,10 @@ function extractConfig(content: string): ExtractedConfig {
 /**
  * Estimate GPU memory usage for training
  */
-function estimateGpuMemory(config: ExtractedConfig): { peak_gb: number; breakdown: Record<string, number> } {
+function estimateGpuMemory(config: ExtractedConfig): {
+  peak_gb: number
+  breakdown: Record<string, number>
+} {
   const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
   const modelSize = modelInfo?.size_gb || 2.0 // Default 2GB
 
@@ -216,7 +223,13 @@ function estimateDiskUsage(config: ExtractedConfig): {
   const steadyCheckpoints = (modelWeightsFp32 + optimizerStateSize) * saveLimit
   const peak_gb = total_gb - steadyCheckpoints + peakCheckpoints
 
-  return { total_gb, breakdown, peak_gb, save_only_model: saveOnlyModel, clear_hf_cache: clearHfCache }
+  return {
+    total_gb,
+    breakdown,
+    peak_gb,
+    save_only_model: saveOnlyModel,
+    clear_hf_cache: clearHfCache,
+  }
 }
 
 /**
@@ -329,7 +342,9 @@ function checkDeprecations(content: string): CheckResult[] {
       check: 'Deprecated API',
       status: 'warn',
       message: 'tokenizer= is deprecated in Seq2SeqTrainer (transformers>=4.46)',
-      details: { fix: 'Use processing_class=tokenizer instead of tokenizer=tokenizer' },
+      details: {
+        fix: 'Use processing_class=tokenizer instead of tokenizer=tokenizer',
+      },
     })
   }
 
@@ -564,52 +579,100 @@ kagglehub.model_upload(
  * Check if progress bars are disabled for clean Kaggle logs
  *
  * TQDM and HuggingFace progress bars create messy logs in Kaggle kernels.
- * Setting these environment variables at the start of the notebook keeps logs clean.
+ * Multiple approaches can disable progress bars:
+ * 1. Environment variables (TQDM_DISABLE, HF_HUB_DISABLE_PROGRESS_BARS)
+ * 2. partialmethod patching of tqdm.__init__
+ * 3. disable=True on individual tqdm loops
+ * 4. report_to="none" in HuggingFace TrainingArguments
  */
 function checkProgressBarsDisabled(content: string): CheckResult[] {
   const results: CheckResult[] = []
+  const missing: string[] = []
+  const warnings: string[] = []
 
-  // Check for TQDM_DISABLE
+  // Check for TQDM_DISABLE env var
   const hasTqdmDisable = /os\.environ\s*\[\s*["']TQDM_DISABLE["']\s*\]\s*=\s*["']1["']/.test(content)
 
-  // Check for HF_HUB_DISABLE_PROGRESS_BARS
+  // Check for HF_HUB_DISABLE_PROGRESS_BARS env var
   const hasHfDisable = /os\.environ\s*\[\s*["']HF_HUB_DISABLE_PROGRESS_BARS["']\s*\]\s*=\s*["']1["']/.test(content)
 
-  if (!hasTqdmDisable && !hasHfDisable) {
-    results.push({
-      check: 'Progress Bars',
-      status: 'warn',
-      message: 'Progress bars not disabled - Kaggle logs will be messy',
-      details: {
-        fix: 'Add at the start of your notebook:\nos.environ["TQDM_DISABLE"] = "1"\nos.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"',
-        missing: ['TQDM_DISABLE', 'HF_HUB_DISABLE_PROGRESS_BARS'],
-      },
-    })
-  } else if (!hasTqdmDisable) {
-    results.push({
-      check: 'Progress Bars',
-      status: 'warn',
-      message: 'TQDM progress bars not disabled',
-      details: {
-        fix: 'Add: os.environ["TQDM_DISABLE"] = "1"',
-        missing: ['TQDM_DISABLE'],
-      },
-    })
-  } else if (!hasHfDisable) {
-    results.push({
-      check: 'Progress Bars',
-      status: 'warn',
-      message: 'HuggingFace progress bars not disabled',
-      details: {
-        fix: 'Add: os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"',
-        missing: ['HF_HUB_DISABLE_PROGRESS_BARS'],
-      },
-    })
-  } else {
+  // Check for partialmethod tqdm patching (more robust than env var)
+  const hasPartialmethodPatch = /partialmethod\s*\(\s*tqdm.*__init__.*disable\s*=\s*True\s*\)/.test(content)
+
+  // Check for Trainer's report_to="none" (disables HF progress logging)
+  const hasReportToNone = /report_to\s*=\s*["']none["']/.test(content)
+
+  // Check for disable_tqdm in Trainer
+  const hasDisableTqdm = /disable_tqdm\s*=\s*True/.test(content)
+
+  // Check for tqdm usage without disable=True
+  const tqdmLoopMatches = content.match(/for\s+\w+\s+in\s+tqdm\s*\([^)]+\)/g) || []
+  const tqdmLoopsWithoutDisable = tqdmLoopMatches.filter(
+    (match) => !match.includes('disable=') && !match.includes('disable =')
+  )
+
+  // Determine if this is a training script (has Trainer/TrainingArguments)
+  const isTrainingScript = /Seq2SeqTrainer|Trainer\s*\(|TrainingArguments/.test(content)
+
+  // Build result based on what's missing
+  if (!hasTqdmDisable && !hasPartialmethodPatch) {
+    missing.push('TQDM_DISABLE')
+  }
+
+  if (!hasHfDisable) {
+    missing.push('HF_HUB_DISABLE_PROGRESS_BARS')
+  }
+
+  // For training scripts, check Trainer progress bar settings
+  if (isTrainingScript && !hasReportToNone && !hasDisableTqdm) {
+    warnings.push('HuggingFace Trainer may show progress bars. Add report_to="none" to TrainingArguments')
+  }
+
+  // Warn about tqdm loops without explicit disable
+  if (tqdmLoopsWithoutDisable.length > 0 && !hasTqdmDisable && !hasPartialmethodPatch) {
+    warnings.push(
+      `Found ${tqdmLoopsWithoutDisable.length} tqdm loop(s) without disable=True. Consider adding disable=True or using the partialmethod patch.`
+    )
+  }
+
+  // Generate result
+  if (missing.length === 0 && warnings.length === 0) {
     results.push({
       check: 'Progress Bars',
       status: 'pass',
       message: 'Progress bars disabled for clean Kaggle logs',
+    })
+  } else if (missing.length > 0) {
+    const fixes = []
+    if (missing.includes('TQDM_DISABLE')) {
+      fixes.push('os.environ["TQDM_DISABLE"] = "1"')
+    }
+    if (missing.includes('HF_HUB_DISABLE_PROGRESS_BARS')) {
+      fixes.push('os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"')
+    }
+
+    results.push({
+      check: 'Progress Bars',
+      status: 'warn',
+      message: 'Progress bars not fully disabled - Kaggle logs will be messy',
+      details: {
+        fix: `Add at the start of your notebook:\n${fixes.join('\n')}`,
+        missing,
+        alternatives: [
+          'Use partialmethod: tqdm_orig.__init__ = partialmethod(tqdm_orig.__init__, disable=True)',
+          'Add disable=True to each tqdm() call',
+        ],
+        warnings: warnings.length > 0 ? warnings : undefined,
+      },
+    })
+  } else if (warnings.length > 0) {
+    results.push({
+      check: 'Progress Bars',
+      status: 'warn',
+      message: 'Progress bars mostly disabled but some sources remain',
+      details: {
+        warnings,
+      },
     })
   }
 

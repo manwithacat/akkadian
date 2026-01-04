@@ -12,6 +12,7 @@ import {
   competitionInit,
   competitionStatus,
   configure,
+  createInference,
   dataDownload,
   dataExplore,
   dataList,
@@ -27,6 +28,7 @@ import {
   kaggleStatus,
   kaggleSubmissions,
   listKernels,
+  listRunning,
   listRuns,
   log,
   logs,
@@ -66,9 +68,11 @@ const commands: Record<string, Command> = {
   'kaggle run-kernel': runKernel,
   'kaggle download-output': downloadOutput,
   'kaggle list-kernels': listKernels,
+  'kaggle list-running': listRunning,
   'kaggle logs': logs,
   'kaggle status': kaggleStatus,
   'kaggle submissions': kaggleSubmissions,
+  'kaggle create-inference': createInference,
   // Colab commands
   'colab configure': configure,
   'colab download-model': downloadModel,
@@ -283,9 +287,11 @@ Commands:
   kaggle run-kernel            Run and monitor a Kaggle kernel
   kaggle download-output       Download kernel outputs
   kaggle list-kernels          List kernel versions from registry
+  kaggle list-running          List currently running or queued kernels
   kaggle logs                  Retrieve and display kernel execution logs
-  kaggle status                Check kernel execution status
+  kaggle status                Check kernel status (accepts URLs or slugs)
   kaggle submissions           List competition submissions and scoring status
+  kaggle create-inference      Create inference kernel for competition submission
 
   colab configure              Set up GCS bucket and auth
   colab upload-notebook        Upload notebook to GCS for Colab

@@ -230,6 +230,20 @@ export function warn(message: string, options: OutputOptions): void {
 }
 
 /**
+ * Write an info message
+ */
+export function info(message: string, options: OutputOptions): void {
+  if (options.quiet) return
+
+  if (options.format === 'json') {
+    console.log(JSON.stringify({ type: 'info', message }))
+  } else {
+    const msg = options.color ? `${colors.green}✓${colors.reset} ${message}` : `✓ ${message}`
+    console.log(msg)
+  }
+}
+
+/**
  * Common error codes and their agent hints
  */
 export const ErrorHints = {

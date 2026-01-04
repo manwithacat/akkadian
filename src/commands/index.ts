@@ -20,8 +20,10 @@ export {
 export { doctor } from './doctor'
 // Kaggle commands
 export {
+  createInference,
   downloadOutput,
   listKernels,
+  listRunning,
   logs,
   runKernel,
   status as kaggleStatus,
@@ -40,12 +42,20 @@ export { list as modelList, register as modelRegister } from './model'
 // Notebook commands
 export { notebookBuild } from './notebook'
 // Preflight commands
-export { platforms as preflightPlatforms, preflight, validate as preflightValidate } from './preflight'
+export {
+  platforms as preflightPlatforms,
+  preflight,
+  validate as preflightValidate,
+} from './preflight'
 
 // Template commands
 export { templateGenerate, templateList } from './template'
 export { version } from './version'
 // Vertex AI commands
-export { list as vertexList, status as vertexStatus, submit as vertexSubmit } from './vertex'
+export {
+  list as vertexList,
+  status as vertexStatus,
+  submit as vertexSubmit,
+} from './vertex'
 // Workflow commands
 export { importRun, listRuns, prepare, train } from './workflow'
