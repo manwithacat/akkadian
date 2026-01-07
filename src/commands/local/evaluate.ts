@@ -40,7 +40,7 @@ Options:
   args: EvaluateArgs,
 
   async run(args, ctx) {
-    const config = ctx.config
+    const _config = ctx.config
     const modelPath = args.model
     const splitsDir = args['splits-dir'] || join(ctx.cwd, 'datasets', 'kfold_splits')
     const outputPath = args.output

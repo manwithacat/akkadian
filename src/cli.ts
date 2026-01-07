@@ -229,7 +229,7 @@ function parseArgs(argv: string[]): {
         i += 2
       } else {
         const numValue = Number(nextArg)
-        args[key] = isNaN(numValue) ? nextArg : numValue
+        args[key] = Number.isNaN(numValue) ? nextArg : numValue
         i += 2
       }
       continue

@@ -102,7 +102,7 @@ function parseTomlValue(value: string): unknown {
 function parseToml(content: string): Record<string, unknown> {
   const result: Record<string, unknown> = {}
   let currentSection: Record<string, unknown> = result
-  let currentArraySection: string | null = null
+  let _currentArraySection: string | null = null
   let currentArrayItem: Record<string, unknown> | null = null
 
   for (const line of content.split('\n')) {
@@ -137,14 +137,14 @@ function parseToml(content: string): Record<string, unknown> {
       currentArrayItem = {}
       ;(target[arrayName] as unknown[]).push(currentArrayItem)
       currentSection = currentArrayItem
-      currentArraySection = sectionName
+      _currentArraySection = sectionName
       continue
     }
 
     // Section header [section.name]
     const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/)
     if (sectionMatch) {
-      currentArraySection = null
+      _currentArraySection = null
       currentArrayItem = null
       const sectionName = sectionMatch[1]
       const parts = sectionName.split('.')
@@ -179,7 +179,7 @@ export async function loadConfig(configPath: string): Promise<AkkConfig | null> 
     const content = readFileSync(configPath, 'utf-8')
     const parsed = parseToml(content) as unknown as AkkConfig
     return parsed
-  } catch (err) {
+  } catch (_err) {
     return null
   }
 }
@@ -283,7 +283,7 @@ export async function loadCompetitionConfig(configPath: string): Promise<Competi
     }
 
     return result.data
-  } catch (err) {
+  } catch (_err) {
     return null
   }
 }

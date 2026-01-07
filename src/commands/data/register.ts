@@ -3,7 +3,7 @@
  */
 
 import { Database } from 'bun:sqlite'
-import { basename, dirname, isAbsolute, join } from 'path'
+import { basename, isAbsolute, join } from 'path'
 import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
 import { error, logStep, success } from '../../lib/output'

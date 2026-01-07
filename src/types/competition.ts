@@ -6,7 +6,6 @@
  */
 
 import { z } from 'zod'
-import type { PlatformId } from './platform'
 
 /**
  * Competition platform types
@@ -27,10 +26,10 @@ export type KernelStatus = 'queued' | 'running' | 'complete' | 'error' | 'cancel
  * Kernel versioning strategy
  */
 export type VersioningStrategy =
-  | 'timestamp'   // nllb-train-20241222-143022
-  | 'semver'      // nllb-train-v1, nllb-train-v2
-  | 'experiment'  // nllb-train-exp-01, nllb-train-exp-02
-  | 'overwrite'   // default Kaggle behavior (no versioning)
+  | 'timestamp' // nllb-train-20241222-143022
+  | 'semver' // nllb-train-v1, nllb-train-v2
+  | 'experiment' // nllb-train-exp-01, nllb-train-exp-02
+  | 'overwrite' // default Kaggle behavior (no versioning)
 
 /**
  * Kernel versioning configuration (for competition.toml)
@@ -95,7 +94,10 @@ export function generateVersionedKernelId(
   baseName: string,
   versioning: NotebookVersioning
 ): { id: string; slug: string } {
-  const baseSlug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const baseSlug = baseName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 
   if (versioning.use_kaggle_versioning) {
     // Use simple slug, let Kaggle handle versioning
@@ -117,13 +119,18 @@ export function generateVersionedKernelId(
     }
     case 'timestamp': {
       const now = new Date()
-      versionSuffix = now.toISOString().slice(0, 19).replace(/[-:T]/g, '').replace(/(\d{8})(\d{6})/, '$1-$2')
+      versionSuffix = now
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[-:T]/g, '')
+        .replace(/(\d{8})(\d{6})/, '$1-$2')
       break
     }
     case 'experiment': {
-      const expNum = typeof versioning.current_version === 'number'
-        ? versioning.current_version
-        : parseInt(String(versioning.current_version).split('.')[0], 10) || 1
+      const expNum =
+        typeof versioning.current_version === 'number'
+          ? versioning.current_version
+          : parseInt(String(versioning.current_version).split('.')[0], 10) || 1
       versionSuffix = `exp-${String(expNum).padStart(2, '0')}`
       break
     }
@@ -155,7 +162,6 @@ export function incrementVersion(
         return `${major + 1}.0.0`
       case 'minor':
         return `${major}.${minor + 1}.0`
-      case 'patch':
       default:
         return `${major}.${minor}.${patch + 1}`
     }
@@ -396,11 +402,7 @@ export function getCompetitionPaths(root: string, config: CompetitionConfig): Co
 /**
  * Default competition configuration template
  */
-export function createDefaultCompetitionConfig(
-  name: string,
-  slug: string,
-  username: string
-): CompetitionConfig {
+export function createDefaultCompetitionConfig(name: string, slug: string, username: string): CompetitionConfig {
   return {
     competition: {
       name,

@@ -3,9 +3,9 @@
  */
 
 import { z } from 'zod'
+import { download } from '../../lib/gcs'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
-import { listFiles, download } from '../../lib/gcs'
 
 const ListRunsArgs = z.object({
   experiment: z.string().default('nllb-akkadian').describe('Experiment name'),
@@ -25,10 +25,7 @@ Examples:
   akk workflow list-runs --experiment nllb-akkadian --status completed
   akk workflow list-runs --limit 10
 `,
-  examples: [
-    'akk workflow list-runs',
-    'akk workflow list-runs --status completed',
-  ],
+  examples: ['akk workflow list-runs', 'akk workflow list-runs --status completed'],
   args: ListRunsArgs,
 
   async run(args, ctx) {
@@ -51,13 +48,15 @@ Examples:
     }
 
     const stdout = await new Response(proc.stdout).text()
-    const runDirs = stdout.trim().split('\n')
-      .filter(line => line.endsWith('/'))
-      .map(line => {
+    const runDirs = stdout
+      .trim()
+      .split('\n')
+      .filter((line) => line.endsWith('/'))
+      .map((line) => {
         const parts = line.replace(/\/$/, '').split('/')
         return parts[parts.length - 1]
       })
-      .filter(name => name && name !== experiment)
+      .filter((name) => name && name !== experiment)
 
     // Get status for each run (up to limit)
     const runs: Array<{
@@ -130,26 +129,31 @@ Examples:
     console.log(`\nRuns in ${experiment}:\n`)
     console.log(
       'RUN'.padEnd(42) +
-      'STATUS'.padEnd(12) +
-      'BLEU'.padStart(8) +
-      'chrF++'.padStart(8) +
-      'KAGGLE'.padStart(8) +
-      'TIME'.padStart(8)
+        'STATUS'.padEnd(12) +
+        'BLEU'.padStart(8) +
+        'chrF++'.padStart(8) +
+        'KAGGLE'.padStart(8) +
+        'TIME'.padStart(8)
     )
     console.log('-'.repeat(86))
 
     for (const run of runs) {
-      const statusIcon = run.phase === 'completed' ? '\u2713' :
-                        run.phase === 'training' ? '\u2022' :
-                        run.phase === 'failed' ? '\u2717' : '?'
+      const statusIcon =
+        run.phase === 'completed'
+          ? '\u2713'
+          : run.phase === 'training'
+            ? '\u2022'
+            : run.phase === 'failed'
+              ? '\u2717'
+              : '?'
 
       console.log(
         `${statusIcon} ${run.name.slice(0, 38).padEnd(38)} ` +
-        `${run.phase.slice(0, 10).padEnd(10)} ` +
-        `${run.bleu?.toFixed(1).padStart(7) || '    -  '} ` +
-        `${run.chrf?.toFixed(1).padStart(7) || '    -  '} ` +
-        `${run.kaggle?.toFixed(1).padStart(7) || '    -  '} ` +
-        `${(run.duration || '-').padStart(7)}`
+          `${run.phase.slice(0, 10).padEnd(10)} ` +
+          `${run.bleu?.toFixed(1).padStart(7) || '    -  '} ` +
+          `${run.chrf?.toFixed(1).padStart(7) || '    -  '} ` +
+          `${run.kaggle?.toFixed(1).padStart(7) || '    -  '} ` +
+          `${(run.duration || '-').padStart(7)}`
       )
     }
 
@@ -158,7 +162,7 @@ Examples:
     return success({
       experiment,
       total: runs.length,
-      runs: runs.map(r => ({
+      runs: runs.map((r) => ({
         name: r.name,
         phase: r.phase,
         metrics: r.bleu ? { bleu: r.bleu, chrf: r.chrf, kaggle: r.kaggle } : undefined,

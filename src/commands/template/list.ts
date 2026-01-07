@@ -5,16 +5,16 @@
  */
 
 import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
 import { success } from '../../lib/output'
 import {
-  createTemplateEngine,
   AVAILABLE_TEMPLATES,
-  TEMPLATE_DESCRIPTIONS,
+  createTemplateEngine,
   PLATFORM_DISPLAY_NAMES,
+  TEMPLATE_DESCRIPTIONS,
 } from '../../templates'
-import { PLATFORMS } from '../../types/platform'
+import type { CommandDefinition } from '../../types/commands'
 import type { PlatformId } from '../../types/platform'
+import { PLATFORMS } from '../../types/platform'
 
 const ListArgs = z.object({
   platforms: z.boolean().default(false).describe('Show detailed platform information'),
@@ -33,19 +33,16 @@ and time limits.
 Use --platforms to see detailed information about each platform including
 GPU type, memory, disk space, time limits, and recommended batch sizes.
 `,
-  examples: [
-    'akk template list',
-    'akk template list --platforms',
-  ],
+  examples: ['akk template list', 'akk template list --platforms'],
   args: ListArgs,
 
-  async run(args, ctx) {
+  async run(args, _ctx) {
     const engine = createTemplateEngine()
     const templates = engine.listTemplates()
 
     // Build template list
-    const templateList = AVAILABLE_TEMPLATES.map(name => {
-      const template = templates.find(t => t.name === name)
+    const templateList = AVAILABLE_TEMPLATES.map((name) => {
+      const template = templates.find((t) => t.name === name)
       return {
         name,
         description: TEMPLATE_DESCRIPTIONS[name],
@@ -72,16 +69,14 @@ GPU type, memory, disk space, time limits, and recommended batch sizes.
 
     // Group platforms by provider
     const platformGroups = {
-      kaggle: platformList.filter(p => p.id.startsWith('kaggle')),
-      colab: platformList.filter(p => p.id.startsWith('colab')),
-      vertex: platformList.filter(p => p.id.startsWith('vertex')),
-      runpod: platformList.filter(p => p.id.startsWith('runpod')),
+      kaggle: platformList.filter((p) => p.id.startsWith('kaggle')),
+      colab: platformList.filter((p) => p.id.startsWith('colab')),
+      vertex: platformList.filter((p) => p.id.startsWith('vertex')),
+      runpod: platformList.filter((p) => p.id.startsWith('runpod')),
     }
 
     return success({
-      message: args.platforms
-        ? 'Platform details'
-        : 'Available templates and platforms',
+      message: args.platforms ? 'Platform details' : 'Available templates and platforms',
       templates: templateList,
       platforms: args.platforms ? platformList : undefined,
       platform_summary: !args.platforms ? platformGroups : undefined,

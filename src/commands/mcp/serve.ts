@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod'
-import { error, logStep, success } from '../../lib/output'
+import { error, success } from '../../lib/output'
 import { main as startMcpServer } from '../../mcp/server'
 import type { CommandDefinition } from '../../types/commands'
 
@@ -44,7 +44,7 @@ Token Efficiency:
   examples: ['akk mcp serve'],
   args: McpServeArgs,
 
-  async run(_args, ctx) {
+  async run(_args, _ctx) {
     // Note: This command doesn't return - it runs the MCP server
     // The server communicates via stdio, so we can't use normal output
     try {

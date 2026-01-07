@@ -5,8 +5,6 @@
  * in competition.toml and providing unique naming strategies.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { basename, join } from 'path'
 import type { CompetitionConfig, KernelConfig, KernelVersionRecord, VersioningStrategy } from '../types/competition'
 import { findCompetitionConfig, loadCompetitionConfig, saveCompetitionConfig } from './config'
 
@@ -69,8 +67,6 @@ export function generateVersionedSlug(
 
     case 'experiment':
       return `${baseSlug}${separator}exp${separator}${String(version).padStart(2, '0')}`
-
-    case 'overwrite':
     default:
       return baseSlug
   }
@@ -259,7 +255,7 @@ export async function listRegisteredKernels(projectDir?: string): Promise<
     return []
   }
 
-  return Object.entries(config.kernels).map(([name, kernel]) => ({
+  return Object.entries(config.kernels).map(([_name, kernel]) => ({
     name: kernel.base_name,
     currentVersion: kernel.current_version,
     strategy: kernel.versioning_strategy,

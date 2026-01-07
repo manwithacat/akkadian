@@ -6,9 +6,8 @@ import { join } from 'path'
 import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
 import { checkDatasetteInstalled, findAvailablePort, isPortInUse, startDatasette } from '../../lib/datasette'
-import { error, logStep, progress, success } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { parseDatasetRef } from '../../types/data'
 
 const ExploreArgs = z.object({
   name: z.string().optional().describe('Dataset name to explore (default: all)'),

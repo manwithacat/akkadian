@@ -4,12 +4,12 @@
  * Exports all platform adapters and provides registration utilities.
  */
 
-import type { PlatformAdapter } from '../../types/template'
 import type { PlatformId } from '../../types/platform'
-import { KaggleAdapter } from './kaggle'
+import type { PlatformAdapter } from '../../types/template'
 import { ColabAdapter } from './colab'
-import { VertexAdapter } from './vertex'
+import { KaggleAdapter } from './kaggle'
 import { RunPodAdapter } from './runpod'
+import { VertexAdapter } from './vertex'
 
 /**
  * All available adapters
@@ -36,13 +36,11 @@ export function getAdapter(platform: PlatformId): PlatformAdapter | undefined {
 /**
  * Get all adapters for a category
  */
-export function getAdaptersByCategory(
-  category: 'kaggle' | 'colab' | 'vertex' | 'runpod'
-): PlatformAdapter[] {
+export function getAdaptersByCategory(category: 'kaggle' | 'colab' | 'vertex' | 'runpod'): PlatformAdapter[] {
   return adapters.filter((a) => a.id.startsWith(category))
 }
 
-export { KaggleAdapter } from './kaggle'
 export { ColabAdapter } from './colab'
-export { VertexAdapter } from './vertex'
+export { KaggleAdapter } from './kaggle'
 export { RunPodAdapter } from './runpod'
+export { VertexAdapter } from './vertex'

@@ -238,7 +238,7 @@ Options:
       await Bun.write(join(outputDir, '.gitkeep'), '')
 
       // Download model
-      const modelResult = await rsync(`${gcsRunPath}/output/`, join(outputDir, 'model'))
+      const _modelResult = await rsync(`${gcsRunPath}/output/`, join(outputDir, 'model'))
 
       // Download metrics
       const metricFiles = ['metrics.json', 'training_log.json', 'status.json', 'config.json']

@@ -3,8 +3,8 @@
  */
 
 import { z } from 'zod'
-import type { CommandDefinition } from '../types/commands'
 import { success } from '../lib/output'
+import type { CommandDefinition } from '../types/commands'
 
 const VersionArgs = z.object({})
 

@@ -4,23 +4,19 @@
  * Parses and renders notebook templates with platform-specific injection.
  */
 
-import { readFileSync, existsSync, readdirSync } from 'fs'
-import { join, basename, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { generateToolCell, generateToolDependenciesCell } from '../templates/tools'
+import type { PlatformId } from '../types/platform'
 import type {
-  TemplateMetadata,
-  TemplateContext,
-  TemplateRenderResult,
-  NotebookContent,
-  NotebookCell,
   InjectionPoint,
-  TemplateVariable,
+  NotebookCell,
+  NotebookContent,
   PlatformAdapter,
   PlatformPaths,
+  TemplateContext,
+  TemplateMetadata,
+  TemplateRenderResult,
+  TemplateVariable,
 } from '../types/template'
-import type { PlatformId } from '../types/platform'
-import type { ToolId } from '../types/tools'
-import { generateToolCell, generateToolDependenciesCell } from '../templates/tools'
 
 // Embedded templates for bundled builds
 const EMBEDDED_TEMPLATES: Record<string, string> = {
@@ -476,7 +472,7 @@ export function parseTemplateMetadata(content: string): TemplateMetadata {
   const name = templateMatch?.[1]?.trim() || 'unknown'
   const description = descMatch?.[1]?.trim() || ''
   const version = versionMatch?.[1]?.trim() || '1.0.0'
-  const platforms = platformsMatch?.[1]?.split(',').map((p) => p.trim()) as PlatformId[] || []
+  const platforms = (platformsMatch?.[1]?.split(',').map((p) => p.trim()) as PlatformId[]) || []
 
   // Extract injection points
   const injectionPoints: InjectionPoint[] = []
@@ -523,10 +519,7 @@ export function parseTemplateMetadata(content: string): TemplateMetadata {
 /**
  * Substitute variables in template content
  */
-export function substituteVariables(
-  content: string,
-  variables: Record<string, unknown>
-): string {
+export function substituteVariables(content: string, variables: Record<string, unknown>): string {
   let result = content
 
   // Handle conditional blocks {{#if var}}...{{/if}}
@@ -594,10 +587,7 @@ export function extractInjectionPoints(
 /**
  * Inject content into template at injection points
  */
-export function injectContent(
-  content: string,
-  injections: Record<string, string>
-): string {
+export function injectContent(content: string, injections: Record<string, string>): string {
   const lines = content.split('\n')
   const result: string[] = []
 
@@ -730,7 +720,7 @@ export class TemplateEngine {
    * List available templates (from embedded templates)
    */
   listTemplates(): TemplateMetadata[] {
-    return Object.entries(EMBEDDED_TEMPLATES).map(([name, content]) => {
+    return Object.entries(EMBEDDED_TEMPLATES).map(([_name, content]) => {
       return parseTemplateMetadata(content)
     })
   }
@@ -749,10 +739,7 @@ export class TemplateEngine {
   /**
    * Render a template with context
    */
-  render(
-    templateName: string,
-    ctx: TemplateContext
-  ): TemplateRenderResult {
+  render(templateName: string, ctx: TemplateContext): TemplateRenderResult {
     const template = this.loadTemplate(templateName)
     if (!template) {
       throw new Error(`Template not found: ${templateName}`)
@@ -764,10 +751,10 @@ export class TemplateEngine {
 
     // Generate platform-specific injections
     if (adapter) {
-      injections['platform_setup'] = adapter.generateSetupCell(ctx)
-      injections['data_loading'] = adapter.generateDataLoading(ctx)
-      injections['checkpoint_save'] = adapter.generateCheckpointSave(ctx)
-      injections['output_save'] = adapter.generateOutputSave(ctx)
+      injections.platform_setup = adapter.generateSetupCell(ctx)
+      injections.data_loading = adapter.generateDataLoading(ctx)
+      injections.checkpoint_save = adapter.generateCheckpointSave(ctx)
+      injections.output_save = adapter.generateOutputSave(ctx)
     } else {
       warnings.push(`No adapter registered for platform: ${ctx.platform}`)
     }
@@ -788,16 +775,18 @@ export class TemplateEngine {
           const cell = generateToolCell(toolId, ctx.tools.config)
           toolCells.push(cell)
         } catch (err) {
-          warnings.push(`Failed to generate cell for tool ${toolId}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+          warnings.push(
+            `Failed to generate cell for tool ${toolId}: ${err instanceof Error ? err.message : 'Unknown error'}`
+          )
         }
       }
 
       if (toolCells.length > 0) {
-        injections['tools_setup'] = toolCells.join('\n\n')
+        injections.tools_setup = toolCells.join('\n\n')
       }
     } else {
       // No tools - inject empty string to remove the placeholder
-      injections['tools_setup'] = ''
+      injections.tools_setup = ''
     }
 
     // Build variables from context
@@ -846,7 +835,9 @@ export class TemplateEngine {
     // Get platform metadata (for Kaggle kernel-metadata.json)
     let platformMetadata: Record<string, unknown> | undefined
     if (adapter && 'generateMetadata' in adapter) {
-      platformMetadata = (adapter as { generateMetadata(ctx: TemplateContext): Record<string, unknown> }).generateMetadata(ctx)
+      platformMetadata = (
+        adapter as { generateMetadata(ctx: TemplateContext): Record<string, unknown> }
+      ).generateMetadata(ctx)
     }
 
     return {
@@ -861,10 +852,7 @@ export class TemplateEngine {
   /**
    * Render template directly to notebook JSON
    */
-  renderToNotebook(
-    templateName: string,
-    ctx: TemplateContext
-  ): NotebookContent {
+  renderToNotebook(templateName: string, ctx: TemplateContext): NotebookContent {
     const result = this.render(templateName, ctx)
     return result.notebook!
   }

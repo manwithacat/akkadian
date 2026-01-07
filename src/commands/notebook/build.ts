@@ -9,12 +9,9 @@ import TOML from '@iarna/toml'
 import { existsSync, readFileSync } from 'fs'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
-import { getActiveCompetitionDir, loadActiveCompetitionDirectory } from '../../lib/config'
+import { getActiveCompetitionDir } from '../../lib/config'
 import { error, success } from '../../lib/output'
-import { createTemplateEngine, PLATFORM_DISPLAY_NAMES } from '../../templates'
 import type { CommandDefinition } from '../../types/commands'
-import type { PlatformId } from '../../types/platform'
-import type { TemplateContext } from '../../types/template'
 
 /**
  * Training/Inference config schema matching .toml structure
@@ -177,7 +174,11 @@ function parseTrainingConfig(path: string): TrainingConfig {
 /**
  * Convert dataset source to Kaggle format
  */
-function parseDataSource(source: string): { type: string; name: string; path: string } {
+function parseDataSource(source: string): {
+  type: string
+  name: string
+  path: string
+} {
   // Handle Kaggle dataset references
   if (source.includes('/') && !source.startsWith('/')) {
     // Kaggle dataset: username/dataset-name
@@ -597,6 +598,8 @@ function generateInferenceNotebook(config: TrainingConfig, configPath: string): 
 # **Version**: ${config.meta.version}
 # **Generated at**: ${timestamp}
 # **Mode**: Inference (submission)
+#
+# Built with [Akkadian CLI](https://github.com/manwithacat/akkadian) - ML tools for ancient language translation
 
 # %%
 import os
@@ -836,6 +839,8 @@ ${dataSources
 # **Generated from**: \`${basename(configPath)}\`
 # **Version**: ${config.meta.version}
 # **Generated at**: ${timestamp}
+#
+# Built with [Akkadian CLI](https://github.com/manwithacat/akkadian) - ML tools for ancient language translation
 
 # %%
 import os

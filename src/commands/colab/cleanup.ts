@@ -9,8 +9,7 @@
  */
 
 import { z } from 'zod'
-import { deleteFile, exists, getSize, listFiles } from '../../lib/gcs'
-import { error, logStep, success, warn } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import { cli } from '../../lib/process'
 import type { CommandDefinition } from '../../types/commands'
 

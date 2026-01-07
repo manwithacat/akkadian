@@ -4,8 +4,8 @@
  * Generates RunPod-specific notebook code for serverless GPU training.
  */
 
-import type { PlatformAdapter, TemplateContext, PlatformPaths } from '../../types/template'
 import type { PlatformId } from '../../types/platform'
+import type { PlatformAdapter, PlatformPaths, TemplateContext } from '../../types/template'
 import { getRecommendedBatchSize } from '../../types/template'
 
 export class RunPodAdapter implements PlatformAdapter {
@@ -17,7 +17,7 @@ export class RunPodAdapter implements PlatformAdapter {
     this.name = platformId === 'runpod-a100' ? 'RunPod A100' : 'RunPod RTX 3090'
   }
 
-  generateSetupCell(ctx: TemplateContext): string {
+  generateSetupCell(_ctx: TemplateContext): string {
     const gpuType = this.id === 'runpod-a100' ? 'A100' : 'RTX 3090'
 
     return `# RunPod Environment Setup
@@ -77,7 +77,7 @@ except:
 `.replace(/\$\{gpuType\}/g, gpuType)
   }
 
-  generateDataLoading(ctx: TemplateContext): string {
+  generateDataLoading(_ctx: TemplateContext): string {
     return `# Data Loading (RunPod)
 import pandas as pd
 import glob
@@ -118,7 +118,7 @@ else:
 `
   }
 
-  generateCheckpointSave(ctx: TemplateContext): string {
+  generateCheckpointSave(_ctx: TemplateContext): string {
     return `# Checkpoint Saving (RunPod)
 import json
 import shutil
@@ -157,7 +157,7 @@ def load_latest_checkpoint():
 `
   }
 
-  generateOutputSave(ctx: TemplateContext): string {
+  generateOutputSave(_ctx: TemplateContext): string {
     return `# Output Saving (RunPod)
 import json
 
@@ -215,7 +215,7 @@ def download_from_runpod(local_path, remote_name="output"):
 `
   }
 
-  getPaths(ctx: TemplateContext): PlatformPaths {
+  getPaths(_ctx: TemplateContext): PlatformPaths {
     return {
       input: '/workspace/data',
       output: '/workspace/output',

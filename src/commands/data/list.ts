@@ -2,12 +2,11 @@
  * List registered dataset versions
  */
 
-import { z } from 'zod'
 import { join } from 'path'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
+import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
-import { DatasetSourceTypeSchema } from '../../types/data'
+import { error, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const ListArgs = z.object({
   name: z.string().optional().describe('Filter by dataset name'),
@@ -37,12 +36,7 @@ Output columns:
   CREATED  - Creation timestamp
   MLFLOW   - Linked MLflow runs (with --mlflow)
 `,
-  examples: [
-    'akk data list',
-    'akk data list --name raw',
-    'akk data list --source kaggle',
-    'akk data list --mlflow',
-  ],
+  examples: ['akk data list', 'akk data list --name raw', 'akk data list --source kaggle', 'akk data list --mlflow'],
   args: ListArgs,
 
   async run(args, ctx) {
@@ -55,12 +49,9 @@ Output columns:
     // Check if registry exists
     const registryFile = Bun.file(registryPath)
     if (!(await registryFile.exists())) {
-      return error(
-        'NO_REGISTRY',
-        'No dataset registry found',
-        'Run "akk data download" first to create the registry',
-        { path: registryPath }
-      )
+      return error('NO_REGISTRY', 'No dataset registry found', 'Run "akk data download" first to create the registry', {
+        path: registryPath,
+      })
     }
 
     const registry = new DatasetRegistry(registryPath)
@@ -80,9 +71,7 @@ Output columns:
         return success({
           count: 0,
           datasets: [],
-          message: filter.name || filter.sourceType
-            ? 'No datasets match the filter'
-            : 'No datasets registered yet',
+          message: filter.name || filter.sourceType ? 'No datasets match the filter' : 'No datasets registered yet',
         })
       }
 

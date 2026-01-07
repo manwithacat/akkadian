@@ -69,29 +69,29 @@ function extractConfig(content: string): ExtractedConfig {
 
   // Batch size
   const batchMatch = content.match(/["']?batch_size["']?\s*[=:]\s*(\d+)/)
-  if (batchMatch) config.batch_size = parseInt(batchMatch[1])
+  if (batchMatch) config.batch_size = parseInt(batchMatch[1], 10)
 
   // Gradient accumulation
   const gradAccumMatch = content.match(/["']?gradient_accumulation_steps["']?\s*[=:]\s*(\d+)/)
-  if (gradAccumMatch) config.gradient_accumulation_steps = parseInt(gradAccumMatch[1])
+  if (gradAccumMatch) config.gradient_accumulation_steps = parseInt(gradAccumMatch[1], 10)
 
   // Max lengths
   const maxSrcMatch = content.match(/["']?max_src_len["']?\s*[=:]\s*(\d+)/)
-  if (maxSrcMatch) config.max_src_len = parseInt(maxSrcMatch[1])
+  if (maxSrcMatch) config.max_src_len = parseInt(maxSrcMatch[1], 10)
 
   const maxTgtMatch = content.match(/["']?max_tgt_len["']?\s*[=:]\s*(\d+)/)
-  if (maxTgtMatch) config.max_tgt_len = parseInt(maxTgtMatch[1])
+  if (maxTgtMatch) config.max_tgt_len = parseInt(maxTgtMatch[1], 10)
 
   // Epochs
   const epochsMatch = content.match(/["']?num_epochs["']?\s*[=:]\s*(\d+)/)
-  if (epochsMatch) config.num_epochs = parseInt(epochsMatch[1])
+  if (epochsMatch) config.num_epochs = parseInt(epochsMatch[1], 10)
 
   // FP16 (handles both fp16=True and "fp16": True)
   config.fp16 = /["']?fp16["']?\s*[=:]\s*True/i.test(content)
 
   // Save total limit (handles both save_total_limit=1 and "save_total_limit": 1)
   const saveMatch = content.match(/["']?save_total_limit["']?\s*[=:]\s*(\d+)/)
-  if (saveMatch) config.save_total_limit = parseInt(saveMatch[1])
+  if (saveMatch) config.save_total_limit = parseInt(saveMatch[1], 10)
 
   // Save only model (skip optimizer states to save disk space)
   config.save_only_model = /["']?save_only_model["']?\s*[=:]\s*True/i.test(content)
@@ -101,7 +101,7 @@ function extractConfig(content: string): ExtractedConfig {
 
   // Dataloader workers
   const workersMatch = content.match(/dataloader_num_workers\s*=\s*(\d+)/)
-  if (workersMatch) config.dataloader_num_workers = parseInt(workersMatch[1])
+  if (workersMatch) config.dataloader_num_workers = parseInt(workersMatch[1], 10)
 
   return config
 }
@@ -124,24 +124,24 @@ function estimateGpuMemory(config: ExtractedConfig): {
   const breakdown: Record<string, number> = {}
 
   // Model weights
-  breakdown['model_weights'] = fp16 ? modelSize : modelSize * 2
+  breakdown.model_weights = fp16 ? modelSize : modelSize * 2
 
   // Optimizer states (Adam: 2x model size for momentum + variance)
-  breakdown['optimizer_states'] = breakdown['model_weights'] * 2
+  breakdown.optimizer_states = breakdown.model_weights * 2
 
   // Gradients
-  breakdown['gradients'] = breakdown['model_weights']
+  breakdown.gradients = breakdown.model_weights
 
   // Activations (rough estimate based on batch size and sequence length)
   // This is highly variable but we use a heuristic
   const activationFactor = (batchSize * seqLen * seqLen) / (8 * 256 * 256)
-  breakdown['activations'] = Math.min(modelSize * 2 * activationFactor, 16) // Cap at 16GB
+  breakdown.activations = Math.min(modelSize * 2 * activationFactor, 16) // Cap at 16GB
 
   // KV cache and attention
-  breakdown['attention_cache'] = batchSize * seqLen * 0.001 // ~1MB per token per batch
+  breakdown.attention_cache = batchSize * seqLen * 0.001 // ~1MB per token per batch
 
   // CUDA overhead
-  breakdown['cuda_overhead'] = 0.5
+  breakdown.cuda_overhead = 0.5
 
   const peak_gb = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
@@ -194,28 +194,28 @@ function estimateDiskUsage(config: ExtractedConfig): {
   // HuggingFace cache (model download - includes both pytorch and safetensors)
   // If clear_hf_cache=True, this is cleared after model load and doesn't count toward peak
   const hfCacheSize = modelSizeFp16 * 2.5
-  breakdown['hf_cache'] = clearHfCache ? 0 : hfCacheSize
-  breakdown['hf_cache_note'] = clearHfCache ? 0.01 : 0 // marker for cleared cache
+  breakdown.hf_cache = clearHfCache ? 0 : hfCacheSize
+  breakdown.hf_cache_note = clearHfCache ? 0.01 : 0 // marker for cleared cache
 
   // Checkpoints at steady state (model + optimizer states)
   const saveLimit = config.save_total_limit || 3
-  breakdown['checkpoints_model'] = modelWeightsFp32 * saveLimit
-  breakdown['checkpoints_optimizer'] = optimizerStateSize * saveLimit
+  breakdown.checkpoints_model = modelWeightsFp32 * saveLimit
+  breakdown.checkpoints_optimizer = optimizerStateSize * saveLimit
 
   // Peak checkpoint usage: during rotation, +1 checkpoint temporarily exists
   const peakCheckpoints = checkpointSize * (saveLimit + 1)
 
   // Final saved model (also fp32 by default from Trainer)
-  breakdown['final_model'] = modelWeightsFp32
+  breakdown.final_model = modelWeightsFp32
 
   // Tokenizer and configs
-  breakdown['tokenizer_config'] = 0.1
+  breakdown.tokenizer_config = 0.1
 
   // Training logs, tensorboard, etc
-  breakdown['logs'] = 0.05
+  breakdown.logs = 0.05
 
   // Training outputs (submission.csv, etc)
-  breakdown['outputs'] = 0.01
+  breakdown.outputs = 0.01
 
   const total_gb = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
@@ -278,10 +278,10 @@ function estimateTrainingTime(
   const secondsPerStep = baseSecondsPerStep * modelScale * gpuScale * batchScale * seqScale
 
   const breakdown: Record<string, number> = {}
-  breakdown['training'] = (totalSteps * secondsPerStep) / 3600
-  breakdown['evaluation'] = ((totalSteps / 100) * 30) / 3600 // ~30 sec per eval
-  breakdown['model_loading'] = 0.1 // 6 minutes for model download/load
-  breakdown['bleu_computation'] = 0.1 // 6 minutes for final BLEU
+  breakdown.training = (totalSteps * secondsPerStep) / 3600
+  breakdown.evaluation = ((totalSteps / 100) * 30) / 3600 // ~30 sec per eval
+  breakdown.model_loading = 0.1 // 6 minutes for model download/load
+  breakdown.bleu_computation = 0.1 // 6 minutes for final BLEU
 
   const hours = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
@@ -680,6 +680,29 @@ function checkProgressBarsDisabled(content: string): CheckResult[] {
 }
 
 /**
+ * Known dataset schemas for column validation
+ * Maps Kaggle dataset slugs to their known column names
+ */
+const DATASET_SCHEMAS: Record<string, { columns: string[]; description: string }> = {
+  'mtm24-akkadian-transliterated-20k': {
+    columns: ['transliteration', 'target', 'original_cuneiform'],
+    description: 'MTM24 Akkadian transliterated subset',
+  },
+  'mtm24-akkadian-transliterated': {
+    columns: ['transliteration', 'target', 'original_cuneiform'],
+    description: 'Full MTM24 Akkadian transliterated corpus',
+  },
+  'oracc-akkadian-english-parallel-corpus': {
+    columns: ['akkadian', 'english', 'source_file'],
+    description: 'ORACC Akkadian-English parallel corpus',
+  },
+  'deep-past-initiative-machine-translation': {
+    columns: ['id', 'transliteration', 'translation'],
+    description: 'Deep Past Initiative competition data',
+  },
+}
+
+/**
  * Check for dataset column compatibility issues
  *
  * Training notebooks typically expect 'source' and 'target' columns,
@@ -688,6 +711,102 @@ function checkProgressBarsDisabled(content: string): CheckResult[] {
  */
 function checkDatasetColumns(content: string): CheckResult[] {
   const results: CheckResult[] = []
+
+  // Extract column references from DataFrame access patterns
+  // Be specific to avoid false positives from config dicts, env vars, etc.
+  const dataframeNames = /(?:df|train_df|val_df|test_df|data|dataset|examples|sample|batch)\b/
+  const columnAccessPatterns = [
+    // DataFrame column access: df['col'], train_df["col"]
+    new RegExp(`(?:${dataframeNames.source})\\s*\\[\\s*["'](\\w+)["']\\s*\\]`, 'g'),
+    // DataFrame attribute column: df.col.str., df.col.isna()
+    new RegExp(`(?:${dataframeNames.source})\\.(\\w+)\\.(?:str|isna|fillna)`, 'g'),
+    // dropna/fillna subset: .dropna(subset=['col1', 'col2'])
+    /\.(?:dropna|fillna)\s*\(\s*subset\s*=\s*\[([^\]]+)\]/g,
+    // Multi-column selection: df[['col1', 'col2']]
+    new RegExp(`(?:${dataframeNames.source})\\s*\\[\\s*\\[([^\\]]+)\\]\\s*\\]`, 'g'),
+    // Dataset.from_pandas: Dataset.from_pandas(df[['col1', 'col2']])
+    /Dataset\.from_pandas\s*\([^)]*\[\s*\[([^\]]+)\]/g,
+  ]
+
+  const referencedColumns = new Set<string>()
+  for (const pattern of columnAccessPatterns) {
+    let match = pattern.exec(content)
+    while (match !== null) {
+      const captured = match[1]
+      // Handle multi-column matches (comma-separated in brackets)
+      if (captured.includes(',') || captured.includes("'")) {
+        // Extract individual column names from list like "'col1', 'col2'"
+        const cols = captured.match(/["'](\w+)["']/g)
+        if (cols) {
+          for (const col of cols) {
+            const name = col.replace(/["']/g, '')
+            referencedColumns.add(name)
+          }
+        }
+      } else {
+        // Single column name
+        const col = captured.trim()
+        if (col && !['iloc', 'loc', 'values', 'index', 'columns', 'head', 'tail', 'shape'].includes(col)) {
+          referencedColumns.add(col)
+        }
+      }
+      match = pattern.exec(content)
+    }
+  }
+
+  // Detect which datasets are being used
+  const detectedDatasets: string[] = []
+  for (const datasetSlug of Object.keys(DATASET_SCHEMAS)) {
+    if (content.includes(datasetSlug)) {
+      detectedDatasets.push(datasetSlug)
+    }
+  }
+
+  // Validate column references against detected datasets
+  for (const datasetSlug of detectedDatasets) {
+    const schema = DATASET_SCHEMAS[datasetSlug]
+    const invalidColumns: string[] = []
+
+    for (const col of referencedColumns) {
+      // Check if this column is used with this dataset's data
+      // Look for patterns like: df['column'] where df is loaded from this dataset
+      const isDatasetColumn =
+        schema.columns.includes(col) ||
+        // Allow common derived columns
+        ['id', 'source', 'target', 'text', 'label', 'input', 'output'].includes(col)
+
+      if (!isDatasetColumn && referencedColumns.has(col)) {
+        // Check if this column is specifically accessed on data from this dataset
+        // by looking for the column reference near the dataset reference
+        const datasetIndex = content.indexOf(datasetSlug)
+        const columnPattern = new RegExp(`\\[["']${col}["']\\]`)
+        const columnMatch = content.match(columnPattern)
+
+        if (columnMatch && datasetIndex !== -1) {
+          // Simple heuristic: if column is referenced and dataset is used, validate
+          if (!schema.columns.includes(col)) {
+            invalidColumns.push(col)
+          }
+        }
+      }
+    }
+
+    // Report invalid column references
+    if (invalidColumns.length > 0) {
+      results.push({
+        check: 'Dataset Schema',
+        status: 'fail',
+        message: `Column(s) not found in ${datasetSlug}: ${invalidColumns.join(', ')}`,
+        details: {
+          dataset: datasetSlug,
+          invalid_columns: invalidColumns,
+          valid_columns: schema.columns,
+          fix: `Check your TOML config - the dataset has columns: [${schema.columns.join(', ')}]`,
+          common_issue: "MTM24 uses 'target' not 'translation', ORACC uses 'akkadian'/'english' not 'source'/'target'",
+        },
+      })
+    }
+  }
 
   // Check if code expects 'source' and 'target' columns
   const expectsSourceColumn = /\[["']source["']\]/.test(content)
@@ -704,7 +823,7 @@ function checkDatasetColumns(content: string): CheckResult[] {
 
   // Check for dataset sources referencing our datasets
   const usesOraccDataset = /oracc-akkadian-english-parallel-corpus/.test(content)
-  const usesCompetitionData = /deep-past-initiative-machine-translation/.test(content)
+  const _usesCompetitionData = /deep-past-initiative-machine-translation/.test(content)
 
   // Issue 1: Code expects source/target but uses our dataset without column mapping
   if (usesOraccDataset && expectsSourceColumn && !hasColumnNormalization && !expectsAkkadianColumn) {
@@ -755,6 +874,15 @@ function checkDatasetColumns(content: string): CheckResult[] {
     })
   }
 
+  // Pass message if all detected datasets have valid column usage
+  if (detectedDatasets.length > 0 && results.filter((r) => r.status === 'fail').length === 0) {
+    results.push({
+      check: 'Dataset Schema',
+      status: 'pass',
+      message: `Column references validated against ${detectedDatasets.length} dataset(s)`,
+    })
+  }
+
   return results
 }
 
@@ -789,7 +917,7 @@ const KAGGLE_PREINSTALLED = [
  * Metrics available via evaluate that DON'T require internet download
  * because sacrebleu is pre-installed on Kaggle
  */
-const EVALUATE_METRICS_NEEDING_DOWNLOAD: Record<string, string[]> = {
+const _EVALUATE_METRICS_NEEDING_DOWNLOAD: Record<string, string[]> = {
   // These metrics download from HuggingFace hub
   chrf: ['sacrebleu'], // sacrebleu is pre-installed, but evaluate.load downloads
   bleu: ['sacrebleu'],
@@ -995,7 +1123,7 @@ function checkInternetDependencies(content: string, metadataPath?: string): Chec
   // Extract model name from CONFIG if present
   const configModelMatch = content.match(/["']model_name["']\s*:\s*["']([^"']+)["']/)
   const configModelName = configModelMatch ? configModelMatch[1] : null
-  const isHubModel = configModelName && configModelName.includes('/') && !configModelName.startsWith('/')
+  const isHubModel = configModelName?.includes('/') && !configModelName.startsWith('/')
 
   if (!internetEnabled && hasConfigModelLoad && isHubModel && !hasKaggleModelDownload && !hasLocalModelPath) {
     results.push({
@@ -1186,7 +1314,7 @@ Use 'akk preflight platforms' to see available platforms.
   ],
   args: PreflightArgs,
 
-  async run(args, ctx) {
+  async run(args, _ctx) {
     // Validate file exists
     if (!existsSync(args.path)) {
       return error(

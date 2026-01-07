@@ -13,8 +13,6 @@ import {
   createModel,
   createModelInstance,
   createModelVersion,
-  initModel,
-  initModelInstance,
   listModels,
   MODEL_GUIDANCE,
   type ModelInstanceMetadata,

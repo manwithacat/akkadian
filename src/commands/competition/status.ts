@@ -5,9 +5,9 @@
  */
 
 import { z } from 'zod'
-import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 import { loadCompetitionDirectory } from '../../lib/config'
+import { error, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
 
 const StatusArgs = z.object({
   path: z.string().optional().describe('Competition directory (default: current directory)'),
@@ -34,7 +34,7 @@ Use --verbose for full configuration details.
   ],
   args: StatusArgs,
 
-  async run(args, ctx) {
+  async run(args, _ctx) {
     const competitionDir = await loadCompetitionDirectory(args.path || process.cwd())
 
     if (!competitionDir) {

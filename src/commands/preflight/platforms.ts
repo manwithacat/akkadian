@@ -211,7 +211,7 @@ Use these profile names with 'akk preflight check --platform <name>'.
   examples: ['akk preflight platforms', 'akk preflight platforms --json'],
   args: PlatformsArgs,
 
-  async run(args, ctx) {
+  async run(_args, _ctx) {
     const platformList = Object.entries(PLATFORMS).map(([id, p]) => ({
       id,
       name: p.name,

@@ -5,7 +5,6 @@
  * and standard folder structure.
  */
 
-import { existsSync } from 'fs'
 import { join, resolve } from 'path'
 import { z } from 'zod'
 import { findCompetitionConfig, initCompetitionDirectory } from '../../lib/config'

@@ -3,7 +3,7 @@
  */
 
 export { download } from './download'
+export { explore } from './explore'
 export { list } from './list'
 export { register } from './register'
-export { explore } from './explore'
 export { wrangler } from './wrangler'

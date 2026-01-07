@@ -2,7 +2,6 @@
  * Register a model in MLFlow Model Registry
  */
 
-import { join } from 'path'
 import { z } from 'zod'
 import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'

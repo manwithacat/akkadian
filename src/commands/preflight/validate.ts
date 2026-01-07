@@ -51,7 +51,7 @@ Returns a readiness score (0-100) and detailed breakdown.
   ],
   args: ValidateArgs,
 
-  async run(args, ctx) {
+  async run(args, _ctx) {
     // Validate file exists
     if (!existsSync(args.path)) {
       return error(
@@ -108,7 +108,7 @@ Returns a readiness score (0-100) and detailed breakdown.
     const result = validateNotebook(notebook, options)
 
     // Generate summary
-    const summary = getValidationSummary(result)
+    const _summary = getValidationSummary(result)
 
     // Determine overall status
     const status = result.ready ? 'ready' : result.valid ? 'warnings' : 'failed'

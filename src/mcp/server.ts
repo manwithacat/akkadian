@@ -19,7 +19,6 @@ import {
   getProjectRoot,
   loadCompetitionConfig,
   loadConfig,
-  loadProjectConfig,
 } from '../lib/config'
 import { listRegisteredKernels } from '../lib/kernel-registry'
 import {
@@ -31,7 +30,6 @@ import {
   getPlatformInfo,
   getQuickReference,
   getWorkflow,
-  type LoadLevel,
   searchKnowledge,
 } from './knowledge'
 

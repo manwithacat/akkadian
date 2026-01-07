@@ -5,18 +5,16 @@
  * injected into training/inference notebooks.
  */
 
-import { z } from 'zod'
-
 /**
  * Available tool integrations
  */
 export type ToolId =
-  | 'sacrebleu'      // Reproducible MT evaluation
-  | 'qlora'          // QLoRA (4-bit quantization + LoRA)
-  | 'accelerate'     // Distributed training wrapper
-  | 'onnx'           // ONNX export for inference
-  | 'streaming'      // Streaming dataloader for large datasets
-  | 'hpo'            // Hyperparameter optimization (Optuna + MLflow)
+  | 'sacrebleu' // Reproducible MT evaluation
+  | 'qlora' // QLoRA (4-bit quantization + LoRA)
+  | 'accelerate' // Distributed training wrapper
+  | 'onnx' // ONNX export for inference
+  | 'streaming' // Streaming dataloader for large datasets
+  | 'hpo' // Hyperparameter optimization (Optuna + MLflow)
 
 /**
  * Tool configuration options
@@ -170,7 +168,7 @@ export function getToolDependencies(tools: ToolId[]): string[] {
   for (const tool of tools) {
     const meta = TOOL_REGISTRY[tool]
     if (meta) {
-      meta.dependencies.forEach(d => deps.add(d))
+      meta.dependencies.forEach((d) => deps.add(d))
     }
   }
   return Array.from(deps)

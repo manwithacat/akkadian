@@ -52,8 +52,8 @@ async function getLatestCheckpoint(bucket: string, prefix: string): Promise<stri
   const checkpoints = files
     .filter((f) => f.includes('checkpoint-'))
     .sort((a, b) => {
-      const numA = parseInt(a.match(/checkpoint-(\d+)/)?.[1] || '0')
-      const numB = parseInt(b.match(/checkpoint-(\d+)/)?.[1] || '0')
+      const numA = parseInt(a.match(/checkpoint-(\d+)/)?.[1] || '0', 10)
+      const numB = parseInt(b.match(/checkpoint-(\d+)/)?.[1] || '0', 10)
       return numB - numA
     })
 

@@ -4,10 +4,10 @@
  * Generates Kaggle-specific notebook code for training and inference.
  */
 
-import type { PlatformAdapter, TemplateContext, PlatformPaths } from '../../types/template'
-import type { PlatformId } from '../../types/platform'
 import type { MLFramework } from '../../types/commands'
-import { BATCH_SIZE_RECOMMENDATIONS, getRecommendedBatchSize } from '../../types/template'
+import type { PlatformId } from '../../types/platform'
+import type { PlatformAdapter, PlatformPaths, TemplateContext } from '../../types/template'
+import { getRecommendedBatchSize } from '../../types/template'
 
 export class KaggleAdapter implements PlatformAdapter {
   id: PlatformId
@@ -15,8 +15,8 @@ export class KaggleAdapter implements PlatformAdapter {
 
   constructor(platformId: PlatformId = 'kaggle-p100') {
     this.id = platformId
-    this.name = platformId === 'kaggle-p100' ? 'Kaggle P100' :
-                platformId === 'kaggle-t4x2' ? 'Kaggle T4 x2' : 'Kaggle CPU'
+    this.name =
+      platformId === 'kaggle-p100' ? 'Kaggle P100' : platformId === 'kaggle-t4x2' ? 'Kaggle T4 x2' : 'Kaggle CPU'
   }
 
   /**
@@ -92,8 +92,7 @@ ${common}`
 
   generateSetupCell(ctx: TemplateContext): string {
     const competition = ctx.competition?.competition.slug || 'competition-name'
-    const gpuType = this.id === 'kaggle-p100' ? 'P100' :
-                   this.id === 'kaggle-t4x2' ? 'T4' : 'CPU'
+    const gpuType = this.id === 'kaggle-p100' ? 'P100' : this.id === 'kaggle-t4x2' ? 'T4' : 'CPU'
     // Get framework from context or default to pytorch
     const framework: MLFramework = (ctx as { framework?: MLFramework }).framework || 'pytorch'
 
@@ -135,11 +134,13 @@ os.makedirs(MODEL_CACHE, exist_ok=True)
 print(f"Input path: {INPUT_PATH}")
 print(f"Output path: {OUTPUT_PATH}")
 print(f"Platform: ${gpuType}")
-`.replace(/\$\{competition\}/g, competition).replace(/\$\{gpuType\}/g, gpuType)
+`
+      .replace(/\$\{competition\}/g, competition)
+      .replace(/\$\{gpuType\}/g, gpuType)
   }
 
   generateDataLoading(ctx: TemplateContext): string {
-    const competition = ctx.competition?.competition.slug || 'competition-name'
+    const _competition = ctx.competition?.competition.slug || 'competition-name'
 
     return `# Data Loading (Kaggle)
 import glob
@@ -176,7 +177,7 @@ if test_files:
 `
   }
 
-  generateCheckpointSave(ctx: TemplateContext): string {
+  generateCheckpointSave(_ctx: TemplateContext): string {
     return `# Checkpoint Saving (Kaggle)
 import shutil
 
@@ -211,7 +212,7 @@ def load_latest_checkpoint():
 `
   }
 
-  generateOutputSave(ctx: TemplateContext): string {
+  generateOutputSave(_ctx: TemplateContext): string {
     return `# Output Saving (Kaggle)
 import json
 

@@ -4,5 +4,5 @@
  * Exports the MCP server and knowledge utilities.
  */
 
-export { createServer, main } from './server'
 export * from './knowledge'
+export { createServer, main } from './server'

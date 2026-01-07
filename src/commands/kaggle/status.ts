@@ -34,7 +34,7 @@ Possible statuses:
   ],
   args: StatusArgs,
 
-  async run(args, ctx) {
+  async run(args, _ctx) {
     const { path: input } = args
 
     // Parse URL or slug

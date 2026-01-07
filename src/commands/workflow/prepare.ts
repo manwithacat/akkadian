@@ -2,11 +2,11 @@
  * Prepare notebook for Colab - copy to Downloads with proper setup
  */
 
+import { copyFileSync, existsSync } from 'fs'
+import { basename, join } from 'path'
 import { z } from 'zod'
-import { join, basename } from 'path'
-import { existsSync, copyFileSync } from 'fs'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 
 const PrepareArgs = z.object({
   notebook: z.string().describe('Notebook path (.py or .ipynb)'),
@@ -35,9 +35,7 @@ Examples:
   args: PrepareArgs,
 
   async run(args, ctx) {
-    const notebookPath = args.notebook.startsWith('/')
-      ? args.notebook
-      : join(ctx.cwd, args.notebook)
+    const notebookPath = args.notebook.startsWith('/') ? args.notebook : join(ctx.cwd, args.notebook)
 
     // Determine paths
     const isPy = notebookPath.endsWith('.py')

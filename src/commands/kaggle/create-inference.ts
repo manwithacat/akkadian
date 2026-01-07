@@ -10,7 +10,7 @@
  */
 
 import { existsSync, mkdirSync } from 'fs'
-import { basename, dirname, join } from 'path'
+import { join } from 'path'
 import { z } from 'zod'
 import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
 import { error, success } from '../../lib/output'
@@ -141,7 +141,7 @@ function generateInferenceNotebook(options: {
   const timestamp = new Date().toISOString()
 
   // Generate preprocessing code based on type
-  const preprocessingCode = ''
+  const _preprocessingCode = ''
   let preprocessingImports = ''
   let applyPreprocessing = '    prefixed_texts = [prefix + t for t in texts]'
 

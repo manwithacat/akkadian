@@ -4,16 +4,13 @@
  * Generates code cells for optional ML tool integrations.
  */
 
-import type { ToolId, ToolConfig } from '../../types/tools'
+import type { ToolConfig, ToolId } from '../../types/tools'
 import { DEFAULT_TOOL_CONFIG, getToolDependencies } from '../../types/tools'
 
 /**
  * Generate tool cell content
  */
-export function generateToolCell(
-  toolId: ToolId,
-  config?: Partial<ToolConfig>
-): string {
+export function generateToolCell(toolId: ToolId, config?: Partial<ToolConfig>): string {
   const mergedConfig = {
     ...DEFAULT_TOOL_CONFIG,
     ...config,
@@ -44,7 +41,7 @@ export function generateToolDependenciesCell(tools: ToolId[]): string {
   const deps = getToolDependencies(tools)
   if (deps.length === 0) return ''
 
-  const depsList = deps.map(d => `        "${d}",`).join('\n')
+  const depsList = deps.map((d) => `        "${d}",`).join('\n')
 
   return `# %% [markdown]
 # # Tool Dependencies
@@ -109,7 +106,9 @@ def evaluate_translations(
     # Wrap references in list (sacrebleu expects list of reference lists)
     refs = [references]
 
-    ${metrics.includes('bleu') ? `
+    ${
+      metrics.includes('bleu')
+        ? `
     # BLEU score
     bleu = BLEU(
         lowercase=${lowercase},
@@ -126,9 +125,13 @@ def evaluate_translations(
     }
     print(f"BLEU: {bleu_result.score:.2f}")
     print(f"  Signature: {bleu_result.signature}")
-    ` : ''}
+    `
+        : ''
+    }
 
-    ${metrics.includes('chrf') ? `
+    ${
+      metrics.includes('chrf')
+        ? `
     # chrF score (character-level, good for morphologically rich languages)
     chrf = CHRF()
     chrf_result = chrf.corpus_score(hypotheses, refs)
@@ -138,9 +141,13 @@ def evaluate_translations(
     }
     print(f"chrF: {chrf_result.score:.2f}")
     print(f"  Signature: {chrf_result.signature}")
-    ` : ''}
+    `
+        : ''
+    }
 
-    ${metrics.includes('ter') ? `
+    ${
+      metrics.includes('ter')
+        ? `
     # TER score (Translation Edit Rate)
     ter = TER()
     ter_result = ter.corpus_score(hypotheses, refs)
@@ -150,7 +157,9 @@ def evaluate_translations(
     }
     print(f"TER: {ter_result.score:.2f}")
     print(f"  Signature: {ter_result.signature}")
-    ` : ''}
+    `
+        : ''
+    }
 
     return results
 

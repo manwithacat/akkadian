@@ -5,8 +5,6 @@
  * Refactored from preflight/platforms.ts for broader use.
  */
 
-import { z } from 'zod'
-
 /**
  * Supported platform identifiers
  */
@@ -249,7 +247,7 @@ export const PLATFORMS: Record<PlatformId, PlatformProfile> = {
     },
     pricing: {
       type: 'paid',
-      rate_per_hour: 0.50,
+      rate_per_hour: 0.5,
       currency: 'USD',
     },
   },
@@ -386,7 +384,7 @@ export const PLATFORMS: Record<PlatformId, PlatformProfile> = {
     },
   },
 
-  'local': {
+  local: {
     id: 'local',
     name: 'Local Machine',
     description: 'Local development machine',

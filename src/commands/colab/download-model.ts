@@ -5,7 +5,7 @@
 import { basename, join } from 'path'
 import { z } from 'zod'
 import { download, getSize, listFiles, rsync } from '../../lib/gcs'
-import { error, logStep, progress, success } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import { directoryExists, ensureDir, runCommand } from '../../lib/process'
 import type { CommandDefinition } from '../../types/commands'
 

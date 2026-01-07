@@ -96,7 +96,7 @@ print(f"Platform: ${gpuType}")
   }
 
   generateDataLoading(ctx: TemplateContext): string {
-    const bucket = ctx.gcs?.bucket || 'your-bucket'
+    const _bucket = ctx.gcs?.bucket || 'your-bucket'
 
     return `# Data Loading (Colab with GCS)
 import pandas as pd
@@ -137,7 +137,7 @@ if test_files:
 `
   }
 
-  generateCheckpointSave(ctx: TemplateContext): string {
+  generateCheckpointSave(_ctx: TemplateContext): string {
     return `# Checkpoint Saving (Colab with GCS)
 import shutil
 import json
@@ -204,7 +204,7 @@ def update_status(phase, progress=None, metrics=None):
 `
   }
 
-  generateOutputSave(ctx: TemplateContext): string {
+  generateOutputSave(_ctx: TemplateContext): string {
     return `# Output Saving (Colab with GCS)
 import json
 
@@ -264,7 +264,7 @@ def finalize_run(status="completed"):
 `
   }
 
-  getPaths(ctx: TemplateContext): PlatformPaths {
+  getPaths(_ctx: TemplateContext): PlatformPaths {
     return {
       input: '/content/data',
       output: '/content/output',

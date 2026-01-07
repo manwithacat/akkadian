@@ -58,7 +58,7 @@ Options:
     if (params) {
       try {
         parsedParams = JSON.parse(params)
-      } catch (e) {
+      } catch (_e) {
         return error('INVALID_PARAMS', 'Invalid JSON for params', 'Use valid JSON: {"key": "value"}', { params })
       }
     }
@@ -66,7 +66,7 @@ Options:
     if (metrics) {
       try {
         parsedMetrics = JSON.parse(metrics)
-      } catch (e) {
+      } catch (_e) {
         return error('INVALID_METRICS', 'Invalid JSON for metrics', 'Use valid JSON: {"key": 123.4}', { metrics })
       }
     }

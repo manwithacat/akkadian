@@ -43,7 +43,7 @@ async function checkCommand(name: string, args: string[] = ['--version']): Promi
       status: 'error',
       message: `Exit code: ${result.exitCode}`,
     }
-  } catch (err) {
+  } catch (_err) {
     return {
       name,
       status: 'error',

@@ -3,13 +3,14 @@
  */
 
 import { z } from 'zod'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 
 // Simple info logging
 function info(msg: string, _output: any): void {
   console.log(msg)
 }
+
 import { spawn } from 'child_process'
 
 const ListArgs = z.object({
@@ -29,11 +30,7 @@ Options:
   --limit    Number of jobs to show (default: 10)
   --state    Filter by state (RUNNING, SUCCEEDED, FAILED)
 `,
-  examples: [
-    'akk vertex list',
-    'akk vertex list --limit 20',
-    'akk vertex list --state RUNNING',
-  ],
+  examples: ['akk vertex list', 'akk vertex list --limit 20', 'akk vertex list --state RUNNING'],
   args: ListArgs,
 
   async run(args, ctx) {
@@ -42,7 +39,9 @@ Options:
 
     try {
       const gcloudArgs = [
-        'ai', 'custom-jobs', 'list',
+        'ai',
+        'custom-jobs',
+        'list',
         `--project=${project}`,
         `--region=${args.region}`,
         `--limit=${args.limit}`,
@@ -99,8 +98,12 @@ async function execCommand(cmd: string, args: string[]): Promise<string> {
     let stdout = ''
     let stderr = ''
 
-    proc.stdout?.on('data', (data) => { stdout += data.toString() })
-    proc.stderr?.on('data', (data) => { stderr += data.toString() })
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString()
+    })
+    proc.stderr?.on('data', (data) => {
+      stderr += data.toString()
+    })
 
     proc.on('close', (code) => {
       if (code === 0) {

@@ -6,16 +6,11 @@ import { basename, dirname, join } from 'path'
 import { z } from 'zod'
 import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
 import { convertToNotebook, createKernelMetadata, pushKernel } from '../../lib/kaggle'
-import {
-  generateVersionedSlug,
-  getOrCreateKernelConfig,
-  registerKernelVersion,
-  type VersionedKernel,
-} from '../../lib/kernel-registry'
+import { generateVersionedSlug, registerKernelVersion, type VersionedKernel } from '../../lib/kernel-registry'
 import { checkServer, logKernelUpload } from '../../lib/mlflow'
-import { error, logStep, progress, success } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import type { KernelMetadata, NotebookVersioning, VersioningStrategy } from '../../types/competition'
+import type { KernelMetadata } from '../../types/competition'
 import { generateVersionedKernelId, incrementVersion, KernelMetadataSchema } from '../../types/competition'
 
 const UploadNotebookArgs = z.object({
@@ -199,7 +194,7 @@ Other Options:
 
           versionedKernel = registration.kernel
           kernelTitle = versionedKernel.slug.replace(/-/g, ' ')
-        } catch (err) {
+        } catch (_err) {
           // Fallback to simple versioning if registry fails
           logStep(
             {

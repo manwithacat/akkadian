@@ -3,13 +3,14 @@
  */
 
 import { z } from 'zod'
+import { error, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
-import { success, error } from '../../lib/output'
 
 // Simple info logging
 function info(msg: string, _output: any): void {
   console.log(msg)
 }
+
 import { spawn } from 'child_process'
 
 const StatusArgs = z.object({
@@ -44,7 +45,9 @@ Options:
     try {
       // List jobs to find the one we want
       const result = await execCommand('gcloud', [
-        'ai', 'custom-jobs', 'list',
+        'ai',
+        'custom-jobs',
+        'list',
         `--project=${project}`,
         `--region=${args.region}`,
         `--filter=displayName:${args.job}`,
@@ -78,10 +81,12 @@ Options:
         info(`Watching job... (Ctrl+C to stop)`, ctx.output)
 
         while (true) {
-          await new Promise(resolve => setTimeout(resolve, 30000)) // Poll every 30s
+          await new Promise((resolve) => setTimeout(resolve, 30000)) // Poll every 30s
 
           const updated = await execCommand('gcloud', [
-            'ai', 'custom-jobs', 'list',
+            'ai',
+            'custom-jobs',
+            'list',
             `--project=${project}`,
             `--region=${args.region}`,
             `--filter=displayName:${args.job}`,
@@ -125,8 +130,12 @@ async function execCommand(cmd: string, args: string[]): Promise<string> {
     let stdout = ''
     let stderr = ''
 
-    proc.stdout?.on('data', (data) => { stdout += data.toString() })
-    proc.stderr?.on('data', (data) => { stderr += data.toString() })
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString()
+    })
+    proc.stderr?.on('data', (data) => {
+      stderr += data.toString()
+    })
 
     proc.on('close', (code) => {
       if (code === 0) {

@@ -54,7 +54,7 @@ async function loadMetrics(path: string): Promise<TrainingMetrics | null> {
   }
 }
 
-async function loadTrainingLog(path: string): Promise<any[] | null> {
+async function _loadTrainingLog(path: string): Promise<any[] | null> {
   try {
     const logFile = Bun.file(join(path, 'training_log.json'))
     if (await logFile.exists()) {
@@ -90,8 +90,7 @@ function analyzeMetrics(metrics: TrainingMetrics, comparison?: TrainingMetrics):
 
     if (comparison?.bleu !== undefined) {
       const delta = metrics.bleu - comparison.bleu
-      improvements['bleu'] =
-        `${delta >= 0 ? '+' : ''}${delta.toFixed(2)} (${((delta / comparison.bleu) * 100).toFixed(1)}%)`
+      improvements.bleu = `${delta >= 0 ? '+' : ''}${delta.toFixed(2)} (${((delta / comparison.bleu) * 100).toFixed(1)}%)`
 
       if (delta < 0) {
         recommendations.push(
@@ -115,7 +114,7 @@ function analyzeMetrics(metrics: TrainingMetrics, comparison?: TrainingMetrics):
 
     if (comparison?.loss !== undefined) {
       const delta = metrics.loss - comparison.loss
-      improvements['loss'] = `${delta >= 0 ? '+' : ''}${delta.toFixed(4)}`
+      improvements.loss = `${delta >= 0 ? '+' : ''}${delta.toFixed(4)}`
     }
   }
 

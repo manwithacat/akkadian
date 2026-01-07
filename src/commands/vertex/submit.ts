@@ -169,7 +169,7 @@ Data:
     logStep({ step: 'submit', message: 'Submitting job to Vertex AI...' }, ctx.output)
 
     try {
-      const result = await execCommand('gcloud', gcloudArgs)
+      const _result = await execCommand('gcloud', gcloudArgs)
 
       info(``, ctx.output)
       info(`Job submitted successfully!`, ctx.output)

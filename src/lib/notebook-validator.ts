@@ -5,31 +5,34 @@
  * ready for operation on target platforms.
  */
 
-import type { NotebookContent, NotebookCell, ValidationResult, ValidationError, ValidationWarning } from '../types/template'
 import type { PlatformId } from '../types/platform'
+import type { NotebookContent, ValidationError, ValidationResult, ValidationWarning } from '../types/template'
 
 /**
  * Validation check categories
  */
 export type ValidationCategory =
-  | 'structure'     // Notebook format, cell structure
-  | 'syntax'        // Python syntax validity
-  | 'config'        // Configuration completeness
-  | 'dependencies'  // Package declarations
-  | 'platform'      // Platform-specific requirements
-  | 'tools'         // Tool integration
-  | 'security'      // Security concerns
+  | 'structure' // Notebook format, cell structure
+  | 'syntax' // Python syntax validity
+  | 'config' // Configuration completeness
+  | 'dependencies' // Package declarations
+  | 'platform' // Platform-specific requirements
+  | 'tools' // Tool integration
+  | 'security' // Security concerns
 
 /**
  * Extended validation result with category breakdown
  */
 export interface ExtendedValidationResult extends ValidationResult {
-  categories: Record<ValidationCategory, {
-    passed: number
-    failed: number
-    warnings: number
-  }>
-  score: number  // 0-100 readiness score
+  categories: Record<
+    ValidationCategory,
+    {
+      passed: number
+      failed: number
+      warnings: number
+    }
+  >
+  score: number // 0-100 readiness score
   ready: boolean // Quick check: is it ready for operation?
 }
 
@@ -41,13 +44,16 @@ export interface ValidationOptions {
   checkSyntax?: boolean
   checkDependencies?: boolean
   checkSecurity?: boolean
-  strict?: boolean  // Treat warnings as errors
+  strict?: boolean // Treat warnings as errors
 }
 
 /**
  * Validate notebook structure
  */
-export function validateStructure(notebook: NotebookContent): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validateStructure(notebook: NotebookContent): {
+  errors: ValidationError[]
+  warnings: ValidationWarning[]
+} {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
@@ -148,7 +154,10 @@ export function validateStructure(notebook: NotebookContent): { errors: Validati
 /**
  * Validate Python syntax in code cells
  */
-export function validateSyntax(notebook: NotebookContent): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validateSyntax(notebook: NotebookContent): {
+  errors: ValidationError[]
+  warnings: ValidationWarning[]
+} {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
@@ -163,22 +172,52 @@ export function validateSyntax(notebook: NotebookContent): { errors: ValidationE
     // Check for common syntax issues with regex patterns
     const syntaxChecks: { pattern: RegExp; code: string; message: string; severity: 'error' | 'warning' }[] = [
       // Unclosed strings (simple check)
-      { pattern: /['"][^'"]*$(?!.*['"])/m, code: 'UNCLOSED_STRING', message: 'Possible unclosed string literal', severity: 'warning' },
+      {
+        pattern: /['"][^'"]*$(?!.*['"])/m,
+        code: 'UNCLOSED_STRING',
+        message: 'Possible unclosed string literal',
+        severity: 'warning',
+      },
 
       // Unbalanced parentheses (simple check)
-      { pattern: /\([^)]*$(?!.*\))/m, code: 'UNBALANCED_PARENS', message: 'Possible unbalanced parentheses', severity: 'warning' },
+      {
+        pattern: /\([^)]*$(?!.*\))/m,
+        code: 'UNBALANCED_PARENS',
+        message: 'Possible unbalanced parentheses',
+        severity: 'warning',
+      },
 
       // Triple-quoted string issues
-      { pattern: /"""[^"]*$/m, code: 'UNCLOSED_DOCSTRING', message: 'Possible unclosed docstring', severity: 'warning' },
+      {
+        pattern: /"""[^"]*$/m,
+        code: 'UNCLOSED_DOCSTRING',
+        message: 'Possible unclosed docstring',
+        severity: 'warning',
+      },
 
       // Invalid Python keywords as identifiers (common mistakes)
-      { pattern: /\bdef\s+(?:class|def|import|from|return|yield|lambda)\s*\(/, code: 'RESERVED_KEYWORD', message: 'Using reserved keyword as function name', severity: 'error' },
+      {
+        pattern: /\bdef\s+(?:class|def|import|from|return|yield|lambda)\s*\(/,
+        code: 'RESERVED_KEYWORD',
+        message: 'Using reserved keyword as function name',
+        severity: 'error',
+      },
 
       // Print statement (Python 2)
-      { pattern: /^\s*print\s+[^(].*$/m, code: 'PYTHON2_PRINT', message: 'Python 2 print statement detected', severity: 'error' },
+      {
+        pattern: /^\s*print\s+[^(].*$/m,
+        code: 'PYTHON2_PRINT',
+        message: 'Python 2 print statement detected',
+        severity: 'error',
+      },
 
       // Tab/space mixing (potential)
-      { pattern: /^\t+ +/m, code: 'MIXED_INDENTATION', message: 'Mixed tabs and spaces in indentation', severity: 'warning' },
+      {
+        pattern: /^\t+ +/m,
+        code: 'MIXED_INDENTATION',
+        message: 'Mixed tabs and spaces in indentation',
+        severity: 'warning',
+      },
     ]
 
     for (const check of syntaxChecks) {
@@ -218,14 +257,17 @@ export function validateSyntax(notebook: NotebookContent): { errors: ValidationE
 /**
  * Validate configuration completeness
  */
-export function validateConfig(notebook: NotebookContent): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validateConfig(notebook: NotebookContent): {
+  errors: ValidationError[]
+  warnings: ValidationWarning[]
+} {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
   // Extract all code
   const allCode = notebook.cells
-    .filter(c => c.cell_type === 'code')
-    .map(c => Array.isArray(c.source) ? c.source.join('') : c.source)
+    .filter((c) => c.cell_type === 'code')
+    .map((c) => (Array.isArray(c.source) ? c.source.join('') : c.source))
     .join('\n')
 
   // Check for CONFIG dictionary
@@ -283,14 +325,17 @@ export function validateConfig(notebook: NotebookContent): { errors: ValidationE
 /**
  * Validate dependency declarations
  */
-export function validateDependencies(notebook: NotebookContent): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validateDependencies(notebook: NotebookContent): {
+  errors: ValidationError[]
+  warnings: ValidationWarning[]
+} {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
   // Extract all code
   const allCode = notebook.cells
-    .filter(c => c.cell_type === 'code')
-    .map(c => Array.isArray(c.source) ? c.source.join('') : c.source)
+    .filter((c) => c.cell_type === 'code')
+    .map((c) => (Array.isArray(c.source) ? c.source.join('') : c.source))
     .join('\n')
 
   // Find imports
@@ -306,7 +351,7 @@ export function validateDependencies(notebook: NotebookContent): { errors: Valid
   const installedPackages = new Set<string>()
   while ((match = pipPattern.exec(allCode)) !== null) {
     // Extract package name from requirement string (e.g., "transformers>=4.0.0" -> "transformers")
-    const pkgName = match[1].split(/[<>=\[\]]/)[0].toLowerCase()
+    const pkgName = match[1].split(/[<>=[\]]/)[0].toLowerCase()
     installedPackages.add(pkgName)
   }
 
@@ -325,7 +370,7 @@ export function validateDependencies(notebook: NotebookContent): { errors: Valid
 
   for (const [importName, packageNames] of Object.entries(commonPackages)) {
     if (imports.has(importName)) {
-      const hasInstall = packageNames.some(pkg => installedPackages.has(pkg))
+      const hasInstall = packageNames.some((pkg) => installedPackages.has(pkg))
       if (!hasInstall) {
         warnings.push({
           type: 'warning',
@@ -338,10 +383,10 @@ export function validateDependencies(notebook: NotebookContent): { errors: Valid
   }
 
   // Check for install cell near the top
-  const firstCodeCellIndex = notebook.cells.findIndex(c => c.cell_type === 'code')
+  const firstCodeCellIndex = notebook.cells.findIndex((c) => c.cell_type === 'code')
   if (firstCodeCellIndex >= 0) {
     const firstFewCells = notebook.cells.slice(0, Math.min(5, notebook.cells.length))
-    const hasInstallInFirst5 = firstFewCells.some(cell => {
+    const hasInstallInFirst5 = firstFewCells.some((cell) => {
       if (cell.cell_type !== 'code') return false
       const src = Array.isArray(cell.source) ? cell.source.join('') : cell.source
       return /pip\s+install/.test(src) || /install_packages/.test(src)
@@ -363,14 +408,17 @@ export function validateDependencies(notebook: NotebookContent): { errors: Valid
 /**
  * Validate platform-specific requirements
  */
-export function validatePlatform(notebook: NotebookContent, platform: PlatformId): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validatePlatform(
+  notebook: NotebookContent,
+  platform: PlatformId
+): { errors: ValidationError[]; warnings: ValidationWarning[] } {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
   // Extract all code
   const allCode = notebook.cells
-    .filter(c => c.cell_type === 'code')
-    .map(c => Array.isArray(c.source) ? c.source.join('') : c.source)
+    .filter((c) => c.cell_type === 'code')
+    .map((c) => (Array.isArray(c.source) ? c.source.join('') : c.source))
     .join('\n')
 
   // Platform-specific checks
@@ -446,14 +494,17 @@ export function validatePlatform(notebook: NotebookContent, platform: PlatformId
 /**
  * Validate tool integrations
  */
-export function validateTools(notebook: NotebookContent, expectedTools?: string[]): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validateTools(
+  notebook: NotebookContent,
+  expectedTools?: string[]
+): { errors: ValidationError[]; warnings: ValidationWarning[] } {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
   // Extract all code
   const allCode = notebook.cells
-    .filter(c => c.cell_type === 'code')
-    .map(c => Array.isArray(c.source) ? c.source.join('') : c.source)
+    .filter((c) => c.cell_type === 'code')
+    .map((c) => (Array.isArray(c.source) ? c.source.join('') : c.source))
     .join('\n')
 
   // Tool detection patterns
@@ -516,14 +567,17 @@ export function validateTools(notebook: NotebookContent, expectedTools?: string[
 /**
  * Validate security concerns
  */
-export function validateSecurity(notebook: NotebookContent): { errors: ValidationError[], warnings: ValidationWarning[] } {
+export function validateSecurity(notebook: NotebookContent): {
+  errors: ValidationError[]
+  warnings: ValidationWarning[]
+} {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
 
   // Extract all code
   const allCode = notebook.cells
-    .filter(c => c.cell_type === 'code')
-    .map(c => Array.isArray(c.source) ? c.source.join('') : c.source)
+    .filter((c) => c.cell_type === 'code')
+    .map((c) => (Array.isArray(c.source) ? c.source.join('') : c.source))
     .join('\n')
 
   // Check for hardcoded secrets
@@ -571,10 +625,7 @@ export function validateSecurity(notebook: NotebookContent): { errors: Validatio
 /**
  * Run all validations on a notebook
  */
-export function validateNotebook(
-  notebook: NotebookContent,
-  options: ValidationOptions = {}
-): ExtendedValidationResult {
+export function validateNotebook(notebook: NotebookContent, options: ValidationOptions = {}): ExtendedValidationResult {
   const allErrors: ValidationError[] = []
   const allWarnings: ValidationWarning[] = []
   const categories: ExtendedValidationResult['categories'] = {

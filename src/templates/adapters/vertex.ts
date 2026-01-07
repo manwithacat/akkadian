@@ -78,7 +78,7 @@ print(f"Platform: Vertex AI ${gpuType}")
       .replace(/\$\{gpuType\}/g, gpuType)
   }
 
-  generateDataLoading(ctx: TemplateContext): string {
+  generateDataLoading(_ctx: TemplateContext): string {
     return `# Data Loading (Vertex AI)
 import pandas as pd
 import glob
@@ -115,7 +115,7 @@ else:
 `
   }
 
-  generateCheckpointSave(ctx: TemplateContext): string {
+  generateCheckpointSave(_ctx: TemplateContext): string {
     return `# Checkpoint Saving (Vertex AI)
 import json
 import shutil
@@ -159,7 +159,7 @@ def update_status(phase, progress=None, metrics=None):
 `
   }
 
-  generateOutputSave(ctx: TemplateContext): string {
+  generateOutputSave(_ctx: TemplateContext): string {
     return `# Output Saving (Vertex AI)
 import json
 

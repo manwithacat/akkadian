@@ -83,7 +83,7 @@ After uploading, open in Colab:
     }
 
     // Generate Colab URL
-    const colabUrl = `https://colab.research.google.com/drive` // User needs to open from GCS
+    const _colabUrl = `https://colab.research.google.com/drive` // User needs to open from GCS
 
     return success({
       uploaded: gcsPath,

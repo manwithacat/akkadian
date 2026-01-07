@@ -5,12 +5,11 @@
  * base template files with programmatic cell injection.
  */
 
-import { z } from 'zod'
 import type { PlatformId, PlatformPaths } from './platform'
 
 export type { PlatformPaths }
 
-import type { CompetitionConfig, GCSConfig, TrainingDefaults } from './competition'
+import type { CompetitionConfig } from './competition'
 import type { ToolConfig, ToolId } from './tools'
 
 /**
@@ -315,8 +314,8 @@ export const BATCH_SIZE_RECOMMENDATIONS: Record<string, Record<string, number>> 
  * Get recommended batch size for a model on a platform
  */
 export function getRecommendedBatchSize(platform: PlatformId, modelName: string): number {
-  const platformRecs = BATCH_SIZE_RECOMMENDATIONS[platform] || BATCH_SIZE_RECOMMENDATIONS['local']
-  return platformRecs[modelName] || platformRecs['default'] || 4
+  const platformRecs = BATCH_SIZE_RECOMMENDATIONS[platform] || BATCH_SIZE_RECOMMENDATIONS.local
+  return platformRecs[modelName] || platformRecs.default || 4
 }
 
 /**

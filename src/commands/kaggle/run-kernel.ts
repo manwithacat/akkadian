@@ -4,7 +4,7 @@
 
 import { z } from 'zod'
 import { downloadKernelOutput, getKernelStatus, waitForKernel } from '../../lib/kaggle'
-import { error, logStep, progress, success } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
 
 const RunKernelArgs = z.object({

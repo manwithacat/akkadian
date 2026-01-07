@@ -6,7 +6,7 @@ import { mkdir } from 'fs/promises'
 import { join } from 'path'
 import { z } from 'zod'
 import { DatasetRegistry } from '../../lib/data-registry'
-import { error, logStep, progress, success } from '../../lib/output'
+import { error, logStep, success } from '../../lib/output'
 import { computeChecksum, csvToSqlite } from '../../lib/sqlite'
 import type { CommandDefinition } from '../../types/commands'
 

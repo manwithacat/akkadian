@@ -5,8 +5,8 @@
  * to minimize token usage while maximizing utility.
  */
 
-import type { DomainKnowledge, QuickReference, LoadLevel } from './types'
 import { akkadianDK } from './akkadian-dk'
+import type { LoadLevel, QuickReference } from './types'
 
 export * from './types'
 export { akkadianDK }

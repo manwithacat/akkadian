@@ -72,7 +72,7 @@ function parseCSVLine(line: string): string[] {
  * Infer SQL type from sample values
  */
 function inferSqlType(values: string[]): string {
-  const nonEmpty = values.filter((v) => v && v.trim())
+  const nonEmpty = values.filter((v) => v?.trim())
   if (nonEmpty.length === 0) return 'TEXT'
 
   // Check if all values are integers
@@ -80,7 +80,7 @@ function inferSqlType(values: string[]): string {
   if (allIntegers) return 'INTEGER'
 
   // Check if all values are numbers
-  const allNumbers = nonEmpty.every((v) => !isNaN(parseFloat(v.trim())))
+  const allNumbers = nonEmpty.every((v) => !Number.isNaN(parseFloat(v.trim())))
   if (allNumbers) return 'REAL'
 
   return 'TEXT'

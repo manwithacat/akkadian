@@ -78,7 +78,7 @@ Options:
 
     const downloaded: string[] = []
     const failed: string[] = []
-    let totalSize = 0
+    let _totalSize = 0
 
     // Download model
     if (args.model || args.all) {
@@ -89,7 +89,7 @@ Options:
 
       if (modelFiles.length > 0) {
         const modelSize = (await getSize(modelPath)) || 0
-        totalSize += modelSize
+        _totalSize += modelSize
 
         const modelDir = join(outputDir, 'model')
         const result = await rsync(modelPath, modelDir)
