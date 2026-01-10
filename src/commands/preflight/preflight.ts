@@ -680,6 +680,128 @@ function checkProgressBarsDisabled(content: string): CheckResult[] {
 }
 
 /**
+ * Extract dataset paths referenced in notebook code
+ *
+ * Looks for patterns like:
+ * - /kaggle/input/dataset-slug/file.csv
+ * - KAGGLE_INPUT / "dataset-slug" / ...
+ * - Path("/kaggle/input/dataset-slug/...")
+ */
+function extractDatasetReferences(content: string): string[] {
+  const datasets = new Set<string>()
+
+  // Pattern 1: Direct path strings like /kaggle/input/dataset-slug/...
+  // Matches: "/kaggle/input/dataset-slug" or "/kaggle/input/dataset-slug/file.csv"
+  const directPathPattern = /["']\/kaggle\/input\/([a-z0-9-]+)(?:\/[^"']*)?["']/gi
+  let match = directPathPattern.exec(content)
+  while (match !== null) {
+    datasets.add(match[1])
+    match = directPathPattern.exec(content)
+  }
+
+  // Pattern 2: KAGGLE_INPUT / "dataset-slug/file.csv" (pathlib style)
+  // Matches: KAGGLE_INPUT / "dataset-slug" or KAGGLE_INPUT / "dataset-slug/file.csv"
+  const pathlibPattern = /KAGGLE_INPUT\s*\/\s*["']([a-z0-9-]+)(?:\/[^"']*)?["']/gi
+  match = pathlibPattern.exec(content)
+  while (match !== null) {
+    datasets.add(match[1])
+    match = pathlibPattern.exec(content)
+  }
+
+  // Pattern 3: Path("/kaggle/input/dataset-slug/...")
+  const pathPattern = /Path\s*\(\s*["']\/kaggle\/input\/([a-z0-9-]+)/gi
+  match = pathPattern.exec(content)
+  while (match !== null) {
+    datasets.add(match[1])
+    match = pathPattern.exec(content)
+  }
+
+  return Array.from(datasets)
+}
+
+/**
+ * Check that all dataset paths referenced in code are attached to the kernel
+ *
+ * CRITICAL: Kaggle kernels can only access datasets explicitly attached
+ * in kernel-metadata.json dataset_sources. If a notebook references
+ * /kaggle/input/my-dataset/ but it's not attached, the kernel will fail
+ * with FileNotFoundError.
+ */
+function checkDatasetSources(content: string, metadataPath?: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Extract all dataset references from code
+  const referencedDatasets = extractDatasetReferences(content)
+
+  if (referencedDatasets.length === 0) {
+    return results // No dataset references found
+  }
+
+  // Check for competition source references (these are attached separately)
+  const competitionSlugs = ['deep-past-initiative-machine-translation']
+
+  // Get attached datasets from metadata
+  let attachedDatasets: string[] = []
+  let attachedCompetitions: string[] = []
+  let hasMetadata = false
+
+  if (metadataPath && existsSync(metadataPath)) {
+    try {
+      const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'))
+      attachedDatasets = (metadata.dataset_sources || []).map((ds: string) => {
+        // Extract slug from full path like "manwithacat/dataset-name"
+        const parts = ds.split('/')
+        return parts.length > 1 ? parts[1] : parts[0]
+      })
+      attachedCompetitions = metadata.competition_sources || []
+      hasMetadata = true
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Find missing datasets
+  const missingDatasets = referencedDatasets.filter((ds) => {
+    // Check if it's a competition source
+    if (competitionSlugs.includes(ds)) {
+      return !attachedCompetitions.includes(ds)
+    }
+    // Check if it's attached as a dataset
+    return !attachedDatasets.includes(ds)
+  })
+
+  if (missingDatasets.length > 0) {
+    results.push({
+      check: 'Dataset Sources',
+      status: 'fail',
+      message: `Dataset(s) referenced in code but not attached: ${missingDatasets.join(', ')}`,
+      details: {
+        referenced: referencedDatasets,
+        attached_datasets: attachedDatasets,
+        attached_competitions: attachedCompetitions,
+        missing: missingDatasets,
+        fix: hasMetadata
+          ? `Add to kernel-metadata.json dataset_sources: ${missingDatasets.map((ds) => `"manwithacat/${ds}"`).join(', ')}`
+          : `Use --datasets flag: akk kaggle upload-notebook ... --datasets ${missingDatasets.map((ds) => `manwithacat/${ds}`).join(',')}`,
+        metadata_file: metadataPath || 'not found',
+        note: 'Kaggle kernels can only access datasets explicitly attached in metadata',
+      },
+    })
+  } else if (referencedDatasets.length > 0) {
+    results.push({
+      check: 'Dataset Sources',
+      status: 'pass',
+      message: `All ${referencedDatasets.length} referenced dataset(s) are attached`,
+      details: {
+        datasets: referencedDatasets,
+      },
+    })
+  }
+
+  return results
+}
+
+/**
  * Known dataset schemas for column validation
  * Maps Kaggle dataset slugs to their known column names
  */
@@ -1414,6 +1536,10 @@ Use 'akk preflight platforms' to see available platforms.
     // 0.13. Pip --no-deps Check (causes missing transitive dependencies)
     const pipNoDepsResults = checkPipNoDeps(content)
     checks.push(...pipNoDepsResults)
+
+    // 0.14. Dataset Sources Check (CRITICAL - datasets referenced must be attached)
+    const datasetSourcesResults = checkDatasetSources(content, metadataPath)
+    checks.push(...datasetSourcesResults)
 
     // 1. GPU Memory Check
     const gpuEstimate = estimateGpuMemory(config)

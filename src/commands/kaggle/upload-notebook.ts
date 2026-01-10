@@ -2,6 +2,7 @@
  * Upload notebook to Kaggle kernels with versioning support
  */
 
+import { existsSync, readFileSync } from 'fs'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
 import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
@@ -12,6 +13,40 @@ import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
 import type { KernelMetadata } from '../../types/competition'
 import { generateVersionedKernelId, incrementVersion, KernelMetadataSchema } from '../../types/competition'
+
+/**
+ * Extract dataset paths referenced in notebook code
+ * (Matches preflight.ts extractDatasetReferences)
+ */
+function extractDatasetReferences(content: string): string[] {
+  const datasets = new Set<string>()
+
+  // Pattern 1: Direct path strings like /kaggle/input/dataset-slug/...
+  const directPathPattern = /["']\/kaggle\/input\/([a-z0-9-]+)(?:\/[^"']*)?["']/gi
+  let match = directPathPattern.exec(content)
+  while (match !== null) {
+    datasets.add(match[1])
+    match = directPathPattern.exec(content)
+  }
+
+  // Pattern 2: KAGGLE_INPUT / "dataset-slug/file.csv" (pathlib style)
+  const pathlibPattern = /KAGGLE_INPUT\s*\/\s*["']([a-z0-9-]+)(?:\/[^"']*)?["']/gi
+  match = pathlibPattern.exec(content)
+  while (match !== null) {
+    datasets.add(match[1])
+    match = pathlibPattern.exec(content)
+  }
+
+  // Pattern 3: Path("/kaggle/input/dataset-slug/...")
+  const pathPattern = /Path\s*\(\s*["']\/kaggle\/input\/([a-z0-9-]+)/gi
+  match = pathPattern.exec(content)
+  while (match !== null) {
+    datasets.add(match[1])
+    match = pathPattern.exec(content)
+  }
+
+  return Array.from(datasets)
+}
 
 const UploadNotebookArgs = z.object({
   path: z.string().describe('Path to .py or .ipynb file'),
@@ -118,7 +153,13 @@ Other Options:
 
     // Convert .py to .ipynb if needed
     if (ext === '.py') {
-      logStep({ step: 'convert', message: 'Converting .py to .ipynb with jupytext...' }, ctx.output)
+      logStep(
+        {
+          step: 'convert',
+          message: 'Converting .py to .ipynb with jupytext...',
+        },
+        ctx.output
+      )
 
       ipynbPath = join(dir, `${baseName}.ipynb`)
       const result = await convertToNotebook(fullPath, ipynbPath)
@@ -222,7 +263,13 @@ Other Options:
         const parsed = KernelMetadataSchema.safeParse(rawMetadata)
         if (parsed.success) {
           existingMetadata = parsed.data
-          logStep({ step: 'metadata', message: `Found metadata: ${existingMetadataPath}` }, ctx.output)
+          logStep(
+            {
+              step: 'metadata',
+              message: `Found metadata: ${existingMetadataPath}`,
+            },
+            ctx.output
+          )
         }
       } catch {
         // Ignore parse errors, will create new metadata
@@ -258,9 +305,45 @@ Other Options:
       finalTitle = kernelTitle
     }
 
-    // Create metadata using determined kernel ID
-    // Priority for competition: command arg > existing metadata > config
+    // Auto-detect dataset references in notebook code
+    const notebookContent = readFileSync(fullPath, 'utf-8')
+    const referencedDatasets = extractDatasetReferences(notebookContent)
+
+    // Determine what datasets will be attached
+    const specifiedDatasets = existingMetadata?.dataset_sources || datasets?.split(',').map((s) => s.trim()) || []
+
+    // Extract slugs from full paths like "manwithacat/dataset-name"
+    const attachedDatasetSlugs = specifiedDatasets.map((ds) => {
+      const parts = ds.split('/')
+      return parts.length > 1 ? parts[1] : parts[0]
+    })
+
+    // Check for competition sources
     const competitionSlug = competition || existingMetadata?.competition_sources?.[0] || config?.kaggle?.competition
+    const attachedCompetitions = competitionSlug ? [competitionSlug] : []
+
+    // Find missing datasets (not attached as dataset or competition)
+    const missingDatasets = referencedDatasets.filter(
+      (ds) => !attachedDatasetSlugs.includes(ds) && !attachedCompetitions.includes(ds)
+    )
+
+    // Warn about missing datasets
+    if (missingDatasets.length > 0) {
+      logStep(
+        {
+          step: 'warning',
+          message: `⚠️  Dataset(s) referenced but not attached: ${missingDatasets.join(', ')}`,
+        },
+        ctx.output
+      )
+      logStep(
+        {
+          step: 'warning',
+          message: `   Use --datasets ${missingDatasets.map((ds) => `${username}/${ds}`).join(',')} to attach`,
+        },
+        ctx.output
+      )
+    }
 
     // Priority for internet: command arg > existing metadata > config > default true
     const effectiveInternet =
