@@ -599,7 +599,7 @@ function generateInferenceNotebook(config: TrainingConfig, configPath: string): 
 # **Generated at**: ${timestamp}
 # **Mode**: Inference (submission)
 #
-# Built with [Akkadian CLI](https://github.com/manwithacat/akkadian) - ML tools for ancient language translation
+# Built with [Akkadian CLI](https://github.com/manwithacat/akkadian) - AI-first tooling for ML Competitions on Kaggle
 
 # %%
 import os
@@ -840,7 +840,7 @@ ${dataSources
 # **Version**: ${config.meta.version}
 # **Generated at**: ${timestamp}
 #
-# Built with [Akkadian CLI](https://github.com/manwithacat/akkadian) - ML tools for ancient language translation
+# Built with [Akkadian CLI](https://github.com/manwithacat/akkadian) - AI-first tooling for ML Competitions on Kaggle
 
 # %%
 import os

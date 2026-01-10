@@ -37,6 +37,10 @@ import {
   modelList,
   modelRegister,
   notebookBuild,
+  optimizeCompare,
+  optimizeDownload,
+  optimizeRun,
+  optimizeStudy,
   preflight,
   preflightPlatforms,
   preflightValidate,
@@ -121,6 +125,11 @@ const commands: Record<string, Command> = {
   'data wrangler': dataWrangler,
   // Notebook commands
   'notebook build': notebookBuild,
+  // Optimize commands
+  'optimize run': optimizeRun,
+  'optimize compare': optimizeCompare,
+  'optimize study': optimizeStudy,
+  'optimize download': optimizeDownload,
 }
 
 // Global options schema
@@ -203,6 +212,7 @@ function parseArgs(argv: string[]): {
             'mcp',
             'data',
             'notebook',
+            'optimize',
           ].includes(command)
         ) {
           subcommand = arg
@@ -229,7 +239,25 @@ function parseArgs(argv: string[]): {
         i += 2
       } else {
         const numValue = Number(nextArg)
-        args[key] = Number.isNaN(numValue) ? nextArg : numValue
+        const value = Number.isNaN(numValue) ? nextArg : numValue
+        // Support array arguments by accumulating values for same key
+        // or by parsing comma-separated values
+        if (args[key] !== undefined) {
+          // Already has a value, convert to array
+          if (Array.isArray(args[key])) {
+            ;(args[key] as unknown[]).push(value)
+          } else {
+            args[key] = [args[key], value]
+          }
+        } else if (typeof value === 'string' && value.includes(',')) {
+          // Comma-separated values become an array
+          args[key] = value.split(',').map((v) => {
+            const n = Number(v.trim())
+            return Number.isNaN(n) ? v.trim() : n
+          })
+        } else {
+          args[key] = value
+        }
         i += 2
       }
       continue
@@ -341,6 +369,11 @@ Commands:
 
   notebook build               Generate notebook from TOML config
 
+  optimize run                 Run optimization experiment from config
+  optimize compare             Quick comparison of multiple models
+  optimize study               Manage Optuna hyperparameter studies
+  optimize download            Download HuggingFace models for optimization
+
 Global Options:
   --help, -h     Show help
   --json         Output as JSON
@@ -356,6 +389,7 @@ Examples:
   akk local analyze --run nllb-v4 --compare nllb-v3
   akk kaggle upload-model ./artifacts/nllb-v4/model
   akk mlflow start --port 5001
+  akk optimize run optimization/compare.toml --mode compare
 
 Run 'akk <command> --help' for command-specific help.
 `)

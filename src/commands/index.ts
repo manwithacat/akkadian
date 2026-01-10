@@ -41,6 +41,13 @@ export { log, register as mlflowRegister, start, sync } from './mlflow'
 export { list as modelList, register as modelRegister } from './model'
 // Notebook commands
 export { notebookBuild } from './notebook'
+// Optimize commands
+export {
+  compare as optimizeCompare,
+  download as optimizeDownload,
+  run as optimizeRun,
+  study as optimizeStudy,
+} from './optimize'
 // Preflight commands
 export {
   platforms as preflightPlatforms,
