@@ -297,6 +297,90 @@ export const SubmissionStateSchema = z.object({
 export type SubmissionState = z.infer<typeof SubmissionStateSchema>
 
 /**
+ * Prediction job status
+ */
+export type PredictionStatus = 'queued' | 'running' | 'complete' | 'error' | 'cancelled'
+
+/**
+ * Model source for predictions
+ */
+export type ModelSource = 'kaggle' | 'gcs' | 'local' | 'mlflow'
+
+/**
+ * Prediction job artifact paths
+ */
+export const PredictionArtifactsSchema = z.object({
+  predictions: z.string(),
+  metrics: z.string().optional(),
+  error_analysis: z.string().optional(),
+  logs: z.string().optional(),
+})
+
+export type PredictionArtifacts = z.infer<typeof PredictionArtifactsSchema>
+
+/**
+ * Prediction job metric summary
+ */
+export const PredictionMetricSummarySchema = z
+  .object({
+    bleu: z.number().optional(),
+    chrf: z.number().optional(),
+    accuracy: z.number().optional(),
+    loss: z.number().optional(),
+  })
+  .passthrough()
+
+export type PredictionMetricSummary = z.infer<typeof PredictionMetricSummarySchema>
+
+/**
+ * Prediction job record - tracks a single prediction run for weight optimization
+ */
+export const PredictionJobRecordSchema = z.object({
+  // Identity
+  prediction_id: z.string(),
+  job_type: z.literal('prediction').default('prediction'),
+
+  // Source model
+  training_run_id: z.string().optional(),
+  model_source: z.enum(['kaggle', 'gcs', 'local', 'mlflow']),
+  model_path: z.string(),
+  model_name: z.string().optional(),
+
+  // Target data
+  dataset_name: z.string(),
+  dataset_version: z.string().optional(),
+  dataset_size: z.number().optional(),
+
+  // Execution
+  platform: z.string().default('local'),
+  timestamp: z.string(),
+  duration_seconds: z.number().optional(),
+  status: z.enum(['queued', 'running', 'complete', 'error', 'cancelled']),
+
+  // Results tracking
+  mlflow_run_id: z.string().optional(),
+  metric_summary: PredictionMetricSummarySchema.optional(),
+
+  // Output artifacts
+  artifacts: PredictionArtifactsSchema.optional(),
+
+  // Metadata
+  notes: z.string().optional(),
+})
+
+export type PredictionJobRecord = z.infer<typeof PredictionJobRecordSchema>
+
+/**
+ * Prediction state - tracks all prediction jobs
+ */
+export const PredictionStateSchema = z.object({
+  total: z.number().default(0),
+  jobs: z.record(z.string(), PredictionJobRecordSchema).default({}),
+})
+
+export type PredictionState = z.infer<typeof PredictionStateSchema>
+
+/**
  * Training defaults
  */
 export const TrainingDefaultsSchema = z.object({
@@ -360,6 +444,7 @@ export const CompetitionConfigSchema = z.object({
   models: z.record(z.string(), ModelConfigSchema).default({}),
   kernels: z.record(z.string(), KernelConfigSchema).default({}),
   submissions: SubmissionStateSchema.default({ total: 0, history: [] }),
+  predictions: PredictionStateSchema.default({ total: 0, jobs: {} }),
   training: TrainingDefaultsSchema.default({}),
   gcs: GCSConfigSchema.optional(),
   mlflow: MLFlowConfigSchema.optional(),
@@ -424,6 +509,10 @@ export function createDefaultCompetitionConfig(name: string, slug: string, usern
     submissions: {
       total: 0,
       history: [],
+    },
+    predictions: {
+      total: 0,
+      jobs: {},
     },
     training: {
       default_platform: 'kaggle-p100',

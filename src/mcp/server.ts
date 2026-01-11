@@ -21,6 +21,7 @@ import {
   loadConfig,
 } from '../lib/config'
 import { listRegisteredKernels } from '../lib/kernel-registry'
+import { getPredictionSummary } from '../lib/prediction'
 import {
   formatQuickReference,
   getCommandHelp,
@@ -148,6 +149,14 @@ async function getProjectStatus(): Promise<Record<string, unknown>> {
 
   const kernels = await listRegisteredKernels()
 
+  // Get prediction summary
+  let predictionSummary = null
+  try {
+    predictionSummary = await getPredictionSummary(configPath)
+  } catch {
+    // Ignore errors - predictions tracking is optional
+  }
+
   return {
     hasCompetition: true,
     competition: {
@@ -166,6 +175,19 @@ async function getProjectStatus(): Promise<Record<string, unknown>> {
       total: config.submissions.total,
       bestScore: config.submissions.best_score,
     },
+    predictions: predictionSummary
+      ? {
+          total: predictionSummary.total,
+          byStatus: predictionSummary.by_status,
+          recent: predictionSummary.recent.map((p) => ({
+            id: p.prediction_id,
+            model: p.model_name,
+            dataset: p.dataset_name,
+            status: p.status,
+            bleu: p.metric_summary?.bleu,
+          })),
+        }
+      : null,
     kernels: kernels.map((k) => ({
       name: k.name,
       version: k.currentVersion,

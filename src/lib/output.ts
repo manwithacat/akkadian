@@ -268,3 +268,68 @@ export const ErrorHints = {
     hint: 'Check the path or name spelling',
   },
 } as const
+
+// ============================================
+// Simple print helpers for command output
+// ============================================
+
+/**
+ * Print an error message to stderr
+ */
+export function printError(message: string): void {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR
+  console.error(useColor ? `${colors.red}Error: ${message}${colors.reset}` : `Error: ${message}`)
+}
+
+/**
+ * Print an info message
+ */
+export function printInfo(message: string): void {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR
+  console.log(useColor ? `${colors.cyan}${message}${colors.reset}` : message)
+}
+
+/**
+ * Print a success message
+ */
+export function printSuccess(message: string): void {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR
+  console.log(useColor ? `${colors.green}✓ ${message}${colors.reset}` : `✓ ${message}`)
+}
+
+/**
+ * Print a warning message
+ */
+export function printWarning(message: string): void {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR
+  console.log(useColor ? `${colors.yellow}Warning: ${message}${colors.reset}` : `Warning: ${message}`)
+}
+
+/**
+ * Print data as JSON
+ */
+export function printJson(data: unknown): void {
+  console.log(JSON.stringify(data, null, 2))
+}
+
+/**
+ * Print a simple table (array of rows)
+ */
+export function printTable(headers: string[], rows: string[][]): void {
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR
+
+  // Calculate column widths
+  const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => String(r[i] || '').length)))
+
+  // Print header
+  const headerLine = headers.map((h, i) => h.padEnd(widths[i])).join(' | ')
+  const separator = widths.map((w) => '-'.repeat(w)).join('-+-')
+
+  console.log(useColor ? `${colors.bold}${headerLine}${colors.reset}` : headerLine)
+  console.log(separator)
+
+  // Print rows
+  for (const row of rows) {
+    console.log(row.map((cell, i) => String(cell || '').padEnd(widths[i])).join(' | '))
+  }
+}
