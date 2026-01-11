@@ -14,6 +14,7 @@ export interface CommandRef {
   usage: string
   options?: Record<string, string>
   examples?: string[]
+  notes?: string[]
 }
 
 /**
@@ -50,6 +51,7 @@ export interface Pattern {
   config?: string // Example configuration
   metadata?: Record<string, string> // Metadata field descriptions
   checks?: string[] // Validation checks performed
+  ai_agent_guidance?: Record<string, unknown> // Guidance for AI agents
 }
 
 /**

@@ -239,13 +239,13 @@ print(f"Target language token ID: {tgt_token_id}")`
  * Generate model-specific evaluation/inference code
  */
 function generateEvalSampleCode(config: TrainingConfig): string {
-  const srcCol = config.data.source_column
+  const srcCol = config.data!.source_column
 
   if (isT5Model(config.model.name)) {
     // T5 models use task prefix
     return `for i, sample in enumerate(test_samples):
     src = sample["${srcCol}"]
-    ref = sample["${config.data.target_column}"]
+    ref = sample["${config.data!.target_column}"]
 
     # T5: prepend task prefix
     inputs = tokenizer(TASK_PREFIX + src, return_tensors="pt", max_length=CONFIG["max_src_len"], truncation=True)
@@ -270,7 +270,7 @@ function generateEvalSampleCode(config: TrainingConfig): string {
   // NLLB models use forced_bos_token_id
   return `for i, sample in enumerate(test_samples):
     src = sample["${srcCol}"]
-    ref = sample["${config.data.target_column}"]
+    ref = sample["${config.data!.target_column}"]
 
     inputs = tokenizer(src, return_tensors="pt", max_length=CONFIG["max_src_len"], truncation=True)
     inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -304,7 +304,7 @@ function generateSubmissionCode(config: TrainingConfig): string {
   const srcCol = config.submission.source_column || 'transliteration'
   const idCol = config.submission.id_column || 'id'
   const outCol = config.submission.output_column || 'translation'
-  const batchSize = config.submission.batch_size || config.training.batch_size
+  const batchSize = config.submission.batch_size || config.training?.batch_size
 
   // Generate translate_batch function at module level (not nested in if block)
   const translateBatchFn = isT5Model(config.model.name)
@@ -455,8 +455,8 @@ if test_df is not None:
  * Generate model-specific preprocessing function
  */
 function generatePreprocessFunction(config: TrainingConfig): string {
-  const srcCol = config.data.source_column
-  const tgtCol = config.data.target_column
+  const srcCol = config.data!.source_column
+  const tgtCol = config.data!.target_column
 
   if (isT5Model(config.model.name)) {
     // T5 models need task prefix prepended to inputs
@@ -564,7 +564,7 @@ function generateInferenceNotebook(config: TrainingConfig, configPath: string): 
   const sourceColumn = config.data?.source_column || config.submission?.source_column || 'transliteration'
   const idColumn = config.data?.id_column || config.submission?.id_column || 'id'
   const outputColumn = config.submission?.output_column || 'translation'
-  const batchSize = config.submission?.batch_size || config.generation?.batch_size || 16
+  const batchSize = config.submission?.batch_size || config.training?.batch_size || 16
   const useFp16 = config.model.precision?.inference === 'fp16'
 
   // Determine model source
@@ -931,43 +931,43 @@ CONFIG = {
     "tgt_lang": "${config.model.tgt_lang}",
 
     # Precision
-    "training_precision": "${config.model.precision.training}",
-    "checkpoint_precision": "${config.model.precision.checkpoint}",
-    "fp16": ${config.model.precision.mixed_precision ? 'True' : 'False'},
+    "training_precision": "${config.model.precision!.training}",
+    "checkpoint_precision": "${config.model.precision!.checkpoint}",
+    "fp16": ${config.model.precision!.mixed_precision ? 'True' : 'False'},
 
     # Training
-    "num_epochs": ${config.training.num_epochs},
-    "batch_size": ${config.training.batch_size},
-    "gradient_accumulation_steps": ${config.training.gradient_accumulation_steps},
-    "learning_rate": ${config.training.learning_rate},
-    "weight_decay": ${config.training.weight_decay},
-    "warmup_ratio": ${config.training.warmup_ratio},
-    "lr_scheduler_type": "${config.training.scheduler?.name || 'linear'}",
+    "num_epochs": ${config.training!.num_epochs},
+    "batch_size": ${config.training!.batch_size},
+    "gradient_accumulation_steps": ${config.training!.gradient_accumulation_steps},
+    "learning_rate": ${config.training!.learning_rate},
+    "weight_decay": ${config.training!.weight_decay},
+    "warmup_ratio": ${config.training!.warmup_ratio},
+    "lr_scheduler_type": "${config.training!.scheduler?.name || 'linear'}",
 
     # Sequence lengths
-    "max_src_len": ${config.data.preprocessing.max_src_len},
-    "max_tgt_len": ${config.data.preprocessing.max_tgt_len},
+    "max_src_len": ${config.data!.preprocessing!.max_src_len},
+    "max_tgt_len": ${config.data!.preprocessing!.max_tgt_len},
 
     # Evaluation
-    "eval_steps": ${config.evaluation.eval_steps},
-    "save_steps": ${config.evaluation.save_steps},
-    "logging_steps": ${config.evaluation.logging_steps},
-    "predict_with_generate": ${config.evaluation.predict_with_generate ? 'True' : 'False'},
-    "metric_for_best_model": "${config.submission?.enabled ? 'eval_loss' : config.evaluation.metric}",
-    "greater_is_better": ${config.submission?.enabled ? 'False' : config.evaluation.greater_is_better ? 'True' : 'False'},
+    "eval_steps": ${config.evaluation!.eval_steps},
+    "save_steps": ${config.evaluation!.save_steps},
+    "logging_steps": ${config.evaluation!.logging_steps},
+    "predict_with_generate": ${config.evaluation!.predict_with_generate ? 'True' : 'False'},
+    "metric_for_best_model": "${config.submission?.enabled ? 'eval_loss' : config.evaluation!.metric}",
+    "greater_is_better": ${config.submission?.enabled ? 'False' : config.evaluation!.greater_is_better ? 'True' : 'False'},
 
     # Checkpoints
-    "save_total_limit": ${config.checkpoints.save_total_limit},
-    "save_only_model": ${config.checkpoints.save_optimizer === false ? 'True' : 'False'},  # True = skip optimizer.pt (saves ~4GB per checkpoint)
-    "load_best_at_end": ${config.checkpoints.load_best_at_end ? 'True' : 'False'},
+    "save_total_limit": ${config.checkpoints!.save_total_limit},
+    "save_only_model": ${config.checkpoints!.save_optimizer === false ? 'True' : 'False'},  # True = skip optimizer.pt (saves ~4GB per checkpoint)
+    "load_best_at_end": ${config.checkpoints!.load_best_at_end ? 'True' : 'False'},
 
     # Early stopping
-    "early_stopping_enabled": ${config.evaluation.early_stopping?.enabled ? 'True' : 'False'},
-    "early_stopping_patience": ${config.evaluation.early_stopping?.patience ?? 3},
+    "early_stopping_enabled": ${config.evaluation!.early_stopping?.enabled ? 'True' : 'False'},
+    "early_stopping_patience": ${config.evaluation!.early_stopping?.patience ?? 3},
 
     # Validation split
-    "val_split": ${config.data.val_split},
-    "seed": ${config.data.seed},
+    "val_split": ${config.data!.val_split},
+    "seed": ${config.data!.seed},
 
     # Generation
     "num_beams": ${config.generation.num_beams},
@@ -1459,11 +1459,13 @@ Example config structure: see notebooks/kaggle/training.toml
           version: config.meta.version,
           model: config.model.name,
           precision: config.model.precision,
-          training: {
-            epochs: config.training.num_epochs,
-            batch_size: config.training.batch_size,
-            learning_rate: config.training.learning_rate,
-          },
+          training: config.training
+            ? {
+                epochs: config.training.num_epochs,
+                batch_size: config.training.batch_size,
+                learning_rate: config.training.learning_rate,
+              }
+            : undefined,
         },
         output: outputPath,
         metadata: metadataPath,
@@ -1530,7 +1532,7 @@ Example config structure: see notebooks/kaggle/training.toml
     // Add inference-specific info for inference mode
     if (isInferenceMode) {
       response.inference = {
-        batch_size: config.submission?.batch_size || config.generation?.batch_size || 16,
+        batch_size: config.submission?.batch_size || config.training?.batch_size || 16,
         internet_enabled: false,
       }
     }

@@ -74,6 +74,7 @@ export interface ListFilter {
 
 export class DatasetRegistry {
   private db: Database
+  private registryPath: string
 
   constructor(registryPath: string) {
     this.registryPath = registryPath
