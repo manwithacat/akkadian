@@ -1,6 +1,6 @@
 {
   "name": "@akkadian/cli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Akkadian ML CLI - Kaggle, Colab, and MLFlow integration",
   "module": "src/index.ts",
   "type": "module",

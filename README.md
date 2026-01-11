@@ -1,5 +1,11 @@
 # akk
 
+[![CI](https://github.com/manwithacat/akkadian/actions/workflows/ci.yml/badge.svg)](https://github.com/manwithacat/akkadian/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/manwithacat/akkadian/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1.svg?logo=bun)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
 A CLI for managing ML training workflows across Kaggle, Google Colab, and local environments. Built for the [Akkadian cuneiform translation competition](https://www.kaggle.com/competitions/deep-past-initiative-machine-translation) but useful for any ML project.
 
 ## Features
