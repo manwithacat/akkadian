@@ -7,6 +7,7 @@ import { PLATFORMS, type PlatformProfile } from './platforms'
 
 /**
  * Model size estimates (in GB for fp16)
+ * size_gb = params_b * 2 (2 bytes per param in fp16)
  */
 const MODEL_SIZES: Record<string, { params_b: number; size_gb: number; name: string }> = {
   // NLLB models
@@ -18,10 +19,28 @@ const MODEL_SIZES: Record<string, { params_b: number; size_gb: number; name: str
   'facebook/nllb-200-1.3B': { params_b: 1.3, size_gb: 2.6, name: 'NLLB-1.3B' },
   'facebook/nllb-200-3.3B': { params_b: 3.3, size_gb: 6.6, name: 'NLLB-3.3B' },
 
-  // T5 models
+  // T5 models (original)
   'google-t5/t5-small': { params_b: 0.06, size_gb: 0.12, name: 'T5-Small' },
   'google-t5/t5-base': { params_b: 0.22, size_gb: 0.44, name: 'T5-Base' },
   'google-t5/t5-large': { params_b: 0.77, size_gb: 1.54, name: 'T5-Large' },
+  't5-small': { params_b: 0.06, size_gb: 0.12, name: 'T5-Small' },
+  't5-base': { params_b: 0.22, size_gb: 0.44, name: 'T5-Base' },
+  't5-large': { params_b: 0.77, size_gb: 1.54, name: 'T5-Large' },
+
+  // Flan-T5 models
+  'google/flan-t5-small': {
+    params_b: 0.08,
+    size_gb: 0.16,
+    name: 'Flan-T5-Small',
+  },
+  'google/flan-t5-base': { params_b: 0.25, size_gb: 0.5, name: 'Flan-T5-Base' },
+  'google/flan-t5-large': {
+    params_b: 0.78,
+    size_gb: 1.56,
+    name: 'Flan-T5-Large',
+  },
+  'google/flan-t5-xl': { params_b: 3.0, size_gb: 6.0, name: 'Flan-T5-XL' },
+  'google/flan-t5-xxl': { params_b: 11.0, size_gb: 22.0, name: 'Flan-T5-XXL' },
 
   // ByT5 models
   'google/byt5-small': { params_b: 0.3, size_gb: 0.6, name: 'ByT5-Small' },
@@ -31,6 +50,171 @@ const MODEL_SIZES: Record<string, { params_b: number; size_gb: number; name: str
   // mT5 models
   'google/mt5-small': { params_b: 0.3, size_gb: 0.6, name: 'mT5-Small' },
   'google/mt5-base': { params_b: 0.58, size_gb: 1.16, name: 'mT5-Base' },
+  'google/mt5-large': { params_b: 1.2, size_gb: 2.4, name: 'mT5-Large' },
+
+  // BART models
+  'facebook/bart-base': { params_b: 0.14, size_gb: 0.28, name: 'BART-Base' },
+  'facebook/bart-large': { params_b: 0.4, size_gb: 0.8, name: 'BART-Large' },
+
+  // mBART models
+  'facebook/mbart-large-50': {
+    params_b: 0.61,
+    size_gb: 1.22,
+    name: 'mBART-50',
+  },
+  'facebook/mbart-large-50-many-to-many-mmt': {
+    params_b: 0.61,
+    size_gb: 1.22,
+    name: 'mBART-50-M2M',
+  },
+}
+
+/**
+ * Fuzzy match model name to known models
+ * Handles variations like local paths, different prefixes, etc.
+ */
+function findModelInfo(modelName: string | undefined): { params_b: number; size_gb: number; name: string } | null {
+  if (!modelName) return null
+
+  // Direct lookup first
+  if (MODEL_SIZES[modelName]) {
+    return MODEL_SIZES[modelName]
+  }
+
+  // Normalize the model name for fuzzy matching
+  const normalized = modelName.toLowerCase()
+
+  // Try to match by key patterns
+  for (const [key, info] of Object.entries(MODEL_SIZES)) {
+    const keyNorm = key.toLowerCase()
+    // Check if the model name contains the key or vice versa
+    if (normalized.includes(keyNorm) || keyNorm.includes(normalized)) {
+      return info
+    }
+    // Check just the model part (after the last /)
+    const keyModel = key.split('/').pop()?.toLowerCase() || ''
+    const nameModel = modelName.split('/').pop()?.toLowerCase() || ''
+    if (keyModel && nameModel && (keyModel.includes(nameModel) || nameModel.includes(keyModel))) {
+      return info
+    }
+  }
+
+  // Model family keyword matching for paths like "akkadian-byt5-v1-0-10"
+  const modelFamilies: Array<{
+    keywords: string[]
+    defaultKey: string
+  }> = [
+    { keywords: ['byt5'], defaultKey: 'google/byt5-base' },
+    {
+      keywords: ['flan-t5', 'flan_t5', 'flant5'],
+      defaultKey: 'google/flan-t5-base',
+    },
+    { keywords: ['mt5'], defaultKey: 'google/mt5-base' },
+    { keywords: ['t5'], defaultKey: 'google-t5/t5-base' }, // After more specific T5 variants
+    { keywords: ['nllb'], defaultKey: 'facebook/nllb-200-distilled-600M' },
+    { keywords: ['bart'], defaultKey: 'facebook/bart-base' },
+    { keywords: ['mbart'], defaultKey: 'facebook/mbart-large-50' },
+  ]
+
+  for (const { keywords, defaultKey } of modelFamilies) {
+    if (keywords.some((kw) => normalized.includes(kw))) {
+      // Found a family match, now try to determine size
+      const sizeHints: Array<{ pattern: RegExp; sizeSuffix: string }> = [
+        { pattern: /small/i, sizeSuffix: '-small' },
+        { pattern: /base/i, sizeSuffix: '-base' },
+        { pattern: /large/i, sizeSuffix: '-large' },
+        { pattern: /xl(?!l)/i, sizeSuffix: '-xl' },
+        { pattern: /xxl/i, sizeSuffix: '-xxl' },
+      ]
+
+      // Try to find size-specific variant
+      for (const { pattern, sizeSuffix } of sizeHints) {
+        if (pattern.test(normalized)) {
+          const sizedKey = defaultKey.replace(/-base|-small|-large|-xl|-xxl/i, sizeSuffix)
+          if (MODEL_SIZES[sizedKey]) {
+            return MODEL_SIZES[sizedKey]
+          }
+        }
+      }
+
+      // Fall back to default (usually base) for this family
+      if (MODEL_SIZES[defaultKey]) {
+        return MODEL_SIZES[defaultKey]
+      }
+    }
+  }
+
+  // Pattern-based estimation for unknown models
+  // Look for size indicators in the name
+  const sizePatterns: Array<{ pattern: RegExp; params_b: number }> = [
+    { pattern: /xxl|11b/i, params_b: 11.0 },
+    { pattern: /xl|3b/i, params_b: 3.0 },
+    { pattern: /large|1\.?[23]b|770m/i, params_b: 1.0 },
+    { pattern: /base|[56]00m/i, params_b: 0.5 },
+    { pattern: /small|[12]00m/i, params_b: 0.2 },
+    { pattern: /tiny|60m/i, params_b: 0.06 },
+  ]
+
+  for (const { pattern, params_b } of sizePatterns) {
+    if (pattern.test(normalized)) {
+      return {
+        params_b,
+        size_gb: params_b * 2,
+        name: `Unknown (${modelName.split('/').pop()})`,
+      }
+    }
+  }
+
+  // Default: assume small model (0.5B) rather than large to avoid false alarms
+  return {
+    params_b: 0.5,
+    size_gb: 1.0,
+    name: `Unknown (${modelName.split('/').pop() || 'model'})`,
+  }
+}
+
+/**
+ * Detect if this is an inference-only kernel (no training)
+ */
+function detectInferenceMode(content: string): boolean {
+  // Signs of training
+  const trainingIndicators = [
+    /Trainer\s*\(/,
+    /\.train\s*\(\)/,
+    /training_args/i,
+    /TrainingArguments/,
+    /num_train_epochs/,
+    /learning_rate\s*[=:]/,
+    /optimizer\s*=/,
+    /\.backward\s*\(\)/,
+    /loss\.backward/,
+  ]
+
+  // Signs of inference-only
+  const inferenceIndicators = [
+    /model\.eval\s*\(\)/,
+    /torch\.no_grad/,
+    /model\.generate\s*\(/,
+    /with\s+torch\.inference_mode/,
+  ]
+
+  const hasTraining = trainingIndicators.some((p) => p.test(content))
+  const hasInference = inferenceIndicators.some((p) => p.test(content))
+
+  // If has inference but no training indicators, it's inference-only
+  if (hasInference && !hasTraining) {
+    return true
+  }
+
+  // Filename heuristics
+  const lowerContent = content.toLowerCase()
+  if (lowerContent.includes('inference') || lowerContent.includes('submission') || lowerContent.includes('predict')) {
+    if (!hasTraining) {
+      return true
+    }
+  }
+
+  return false
 }
 
 /**
@@ -53,18 +237,48 @@ interface ExtractedConfig {
 function extractConfig(content: string): ExtractedConfig {
   const config: ExtractedConfig = {}
 
-  // Model name patterns
+  // Model name patterns - direct string literals
   const modelPatterns = [
     /["']model_name["']\s*:\s*["']([^"']+)["']/,
     /MODEL_NAME\s*=\s*["']([^"']+)["']/,
     /from_pretrained\s*\(\s*["']([^"']+)["']/,
   ]
+
+  // Also look for variable assignments like MODEL_PATH = "..."
+  // Common patterns: BYT5_MODEL_PATH, PHILOLOGIST_MODEL_PATH, MODEL_DIR, etc.
+  const modelPathPatterns = [/[A-Z_]*MODEL[A-Z_]*\s*=\s*["']([^"']+)["']/g, /[A-Z_]*_PATH\s*=\s*["']([^"']+)["']/g]
+
+  // Collect all model paths found
+  const modelPaths: string[] = []
+
   for (const pattern of modelPatterns) {
     const match = content.match(pattern)
-    if (match) {
-      config.model_name = match[1]
-      break
+    if (match?.[1]) {
+      modelPaths.push(match[1])
     }
+  }
+
+  // Find variable assignments that look like model paths
+  for (const pattern of modelPathPatterns) {
+    for (const match of content.matchAll(pattern)) {
+      const path = match[1]
+      // Filter to paths that look like model locations
+      if (
+        path.includes('/kaggle/input/') ||
+        path.includes('huggingface') ||
+        path.includes('google/') ||
+        path.includes('facebook/') ||
+        path.includes('model') ||
+        path.includes('transformer')
+      ) {
+        modelPaths.push(path)
+      }
+    }
+  }
+
+  // Use the first valid model path found
+  if (modelPaths.length > 0) {
+    config.model_name = modelPaths[0]
   }
 
   // Batch size
@@ -107,45 +321,77 @@ function extractConfig(content: string): ExtractedConfig {
 }
 
 /**
- * Estimate GPU memory usage for training
+ * Estimate GPU memory usage
+ *
+ * @param config - Extracted configuration from the notebook
+ * @param inferenceMode - If true, estimates for inference-only (much lower memory)
  */
-function estimateGpuMemory(config: ExtractedConfig): {
+function estimateGpuMemory(
+  config: ExtractedConfig,
+  inferenceMode: boolean = false
+): {
   peak_gb: number
   breakdown: Record<string, number>
+  mode: 'training' | 'inference'
+  model_detected: string
 } {
-  const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
-  const modelSize = modelInfo?.size_gb || 2.0 // Default 2GB
+  // Use fuzzy model matching
+  const modelInfo = findModelInfo(config.model_name)
+  const modelSize = modelInfo?.size_gb || 1.0 // Default 1GB (smaller default)
+  const modelName = modelInfo?.name || 'Unknown'
 
   const batchSize = config.batch_size || 8
   const seqLen = Math.max(config.max_src_len || 256, config.max_tgt_len || 256)
   const fp16 = config.fp16 !== false // Default to fp16
 
-  // Memory breakdown (rough estimates)
   const breakdown: Record<string, number> = {}
 
-  // Model weights
-  breakdown.model_weights = fp16 ? modelSize : modelSize * 2
+  if (inferenceMode) {
+    // INFERENCE MODE: Much simpler memory requirements
+    // Only need model weights + small activation buffer
+    breakdown.model_weights = fp16 ? modelSize : modelSize * 2
 
-  // Optimizer states (Adam: 2x model size for momentum + variance)
-  breakdown.optimizer_states = breakdown.model_weights * 2
+    // KV cache for generation (smaller than training activations)
+    // ~2KB per token per layer for typical models
+    const numLayers = Math.ceil(modelInfo?.params_b || 0.5 * 24) // Estimate layers
+    breakdown.kv_cache = (batchSize * seqLen * numLayers * 2) / (1024 * 1024) // KB to GB
 
-  // Gradients
-  breakdown.gradients = breakdown.model_weights
+    // Small activation buffer for current forward pass
+    breakdown.activations = modelSize * 0.2 * (batchSize / 4)
 
-  // Activations (rough estimate based on batch size and sequence length)
-  // This is highly variable but we use a heuristic
-  const activationFactor = (batchSize * seqLen * seqLen) / (8 * 256 * 256)
-  breakdown.activations = Math.min(modelSize * 2 * activationFactor, 16) // Cap at 16GB
+    // CUDA overhead
+    breakdown.cuda_overhead = 0.3
+  } else {
+    // TRAINING MODE: Full memory requirements
+    // Model weights
+    breakdown.model_weights = fp16 ? modelSize : modelSize * 2
 
-  // KV cache and attention
-  breakdown.attention_cache = batchSize * seqLen * 0.001 // ~1MB per token per batch
+    // Optimizer states (Adam: 2x model size for momentum + variance)
+    breakdown.optimizer_states = breakdown.model_weights * 2
 
-  // CUDA overhead
-  breakdown.cuda_overhead = 0.5
+    // Gradients
+    breakdown.gradients = breakdown.model_weights
+
+    // Activations (rough estimate based on batch size and sequence length)
+    // More refined: scale with model size and sequence length
+    const activationFactor = (batchSize * seqLen) / (8 * 256)
+    breakdown.activations = Math.min(modelSize * 1.5 * activationFactor, 12) // Cap at 12GB
+
+    // KV cache and attention
+    breakdown.attention_cache = batchSize * seqLen * 0.0005 // ~0.5MB per token per batch
+
+    // CUDA overhead
+    breakdown.cuda_overhead = 0.5
+  }
 
   const peak_gb = Object.values(breakdown).reduce((a, b) => a + b, 0)
 
-  return { peak_gb, breakdown }
+  return {
+    peak_gb,
+    breakdown,
+    mode: inferenceMode ? 'inference' : 'training',
+    model_detected: modelName,
+  }
 }
 
 /**
@@ -167,18 +413,53 @@ function estimateGpuMemory(config: ExtractedConfig): {
  * - optimizer.pt: 4.6 GB (when disk space available)
  * - Total checkpoint: ~7 GB
  */
-function estimateDiskUsage(config: ExtractedConfig): {
+function estimateDiskUsage(
+  config: ExtractedConfig,
+  inferenceMode: boolean = false
+): {
   total_gb: number
   breakdown: Record<string, number>
   peak_gb: number
   save_only_model: boolean
   clear_hf_cache: boolean
+  mode: 'training' | 'inference'
 } {
-  const modelInfo = config.model_name ? MODEL_SIZES[config.model_name] : null
-  const modelSizeFp16 = modelInfo?.size_gb || 2.0
+  // Use fuzzy model matching
+  const modelInfo = findModelInfo(config.model_name)
+  const modelSizeFp16 = modelInfo?.size_gb || 1.0 // Default 1GB (smaller)
   const saveOnlyModel = config.save_only_model === true
   const clearHfCache = config.clear_hf_cache === true
 
+  const breakdown: Record<string, number> = {}
+
+  if (inferenceMode) {
+    // INFERENCE MODE: Much simpler disk requirements
+    // No checkpoints, no optimizer states, just model + outputs
+
+    // Model loaded from Kaggle input (already on disk, doesn't count toward working space)
+    // Or HF cache if downloading
+    const hfCacheSize = modelSizeFp16 * 2.5
+    breakdown.hf_cache = clearHfCache ? 0 : hfCacheSize
+
+    // Output files (submission.csv, etc)
+    breakdown.outputs = 0.1
+
+    // Temp files
+    breakdown.temp = 0.1
+
+    const total_gb = Object.values(breakdown).reduce((a, b) => a + b, 0)
+
+    return {
+      total_gb,
+      breakdown,
+      peak_gb: total_gb,
+      save_only_model: saveOnlyModel,
+      clear_hf_cache: clearHfCache,
+      mode: 'inference',
+    }
+  }
+
+  // TRAINING MODE: Full disk requirements
   // Model weights in checkpoint (fp32 = 2x fp16)
   const modelWeightsFp32 = modelSizeFp16 * 2
 
@@ -188,8 +469,6 @@ function estimateDiskUsage(config: ExtractedConfig): {
 
   // Full checkpoint size: model + optimizer + small overhead
   const checkpointSize = modelWeightsFp32 + optimizerStateSize + 0.01
-
-  const breakdown: Record<string, number> = {}
 
   // HuggingFace cache (model download - includes both pytorch and safetensors)
   // If clear_hf_cache=True, this is cleared after model load and doesn't count toward peak
@@ -229,6 +508,7 @@ function estimateDiskUsage(config: ExtractedConfig): {
     peak_gb,
     save_only_model: saveOnlyModel,
     clear_hf_cache: clearHfCache,
+    mode: 'training',
   }
 }
 
@@ -743,6 +1023,8 @@ function checkDatasetSources(content: string, metadataPath?: string): CheckResul
   // Get attached datasets from metadata
   let attachedDatasets: string[] = []
   let attachedCompetitions: string[] = []
+  let attachedModels: string[] = []
+  let attachedKernels: string[] = []
   let hasMetadata = false
 
   if (metadataPath && existsSync(metadataPath)) {
@@ -754,6 +1036,17 @@ function checkDatasetSources(content: string, metadataPath?: string): CheckResul
         return parts.length > 1 ? parts[1] : parts[0]
       })
       attachedCompetitions = metadata.competition_sources || []
+      // Extract model slugs from model_sources (format: owner/model/Framework/variation/version)
+      attachedModels = (metadata.model_sources || []).map((ms: string) => {
+        const parts = ms.split('/')
+        return parts.length > 1 ? parts[1] : parts[0]
+      })
+      // Extract kernel slugs from kernel_sources (format: owner/kernel-name)
+      // Kernel outputs are available at /kaggle/input/{kernel-slug}/
+      attachedKernels = (metadata.kernel_sources || []).map((ks: string) => {
+        const parts = ks.split('/')
+        return parts.length > 1 ? parts[1] : parts[0]
+      })
       hasMetadata = true
     } catch {
       // Ignore parse errors
@@ -765,6 +1058,14 @@ function checkDatasetSources(content: string, metadataPath?: string): CheckResul
     // Check if it's a competition source
     if (competitionSlugs.includes(ds)) {
       return !attachedCompetitions.includes(ds)
+    }
+    // Check if it's attached as a model (models appear at /kaggle/input/<model-slug>/...)
+    if (attachedModels.includes(ds)) {
+      return false
+    }
+    // Check if it's attached as a kernel output (kernel outputs at /kaggle/input/<kernel-slug>/...)
+    if (attachedKernels.includes(ds)) {
+      return false
     }
     // Check if it's attached as a dataset
     return !attachedDatasets.includes(ds)
@@ -796,6 +1097,142 @@ function checkDatasetSources(content: string, metadataPath?: string): CheckResul
         datasets: referencedDatasets,
       },
     })
+  }
+
+  return results
+}
+
+/**
+ * Check that model_sources in kernel-metadata.json uses the full path format.
+ *
+ * Kaggle Models require the full path format to be attached properly:
+ *   CORRECT: owner/model-name/Framework/variation/version
+ *   WRONG:   owner/model-name (will NOT be attached to the kernel!)
+ *
+ * This is a critical check because the Kaggle API silently accepts the short format
+ * but the model won't actually be mounted in the kernel environment.
+ */
+function checkModelSourcesFormat(content: string, metadataPath?: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Extract model path references from code
+  // Pattern: /kaggle/input/{model-slug}/{framework}/{variation}/{version}
+  const modelPathPattern = /\/kaggle\/input\/([a-z0-9-]+)\/([a-z]+)\/([a-z0-9-]+)\/(\d+)/gi
+  const modelRefs: string[] = []
+
+  for (const match of content.matchAll(modelPathPattern)) {
+    const [, modelSlug] = match
+    if (modelSlug && !modelRefs.includes(modelSlug)) {
+      modelRefs.push(modelSlug)
+    }
+  }
+
+  // If no model paths referenced, no check needed
+  if (modelRefs.length === 0) {
+    return results
+  }
+
+  // Get model_sources from metadata
+  if (!metadataPath || !existsSync(metadataPath)) {
+    results.push({
+      check: 'Model Sources',
+      status: 'warn',
+      message: `Model path(s) referenced but no kernel-metadata.json found`,
+      details: {
+        referenced_models: modelRefs,
+        fix: 'Create kernel-metadata.json with model_sources array',
+      },
+    })
+    return results
+  }
+
+  try {
+    const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'))
+    const modelSources: string[] = metadata.model_sources || []
+
+    if (modelSources.length === 0) {
+      results.push({
+        check: 'Model Sources',
+        status: 'fail',
+        message: `Model path(s) referenced in code but model_sources is empty`,
+        details: {
+          referenced_models: modelRefs,
+          fix: 'Add model_sources to kernel-metadata.json with full path format: owner/model-name/Framework/variation/version',
+          example: 'manwithacat/byt5-skeleton-akkadian/Transformers/transformers/1',
+        },
+      })
+      return results
+    }
+
+    // Check each model_source for correct format
+    // Full format: owner/model-name/Framework/variation/version (5 parts)
+    // Short format: owner/model-name (2 parts) - WILL NOT WORK
+    const fullPathPattern = /^[a-z0-9_-]+\/[a-z0-9_-]+\/[A-Za-z]+\/[a-z0-9_-]+\/\d+$/
+    const shortPathPattern = /^[a-z0-9_-]+\/[a-z0-9_-]+$/
+
+    const invalidSources: { source: string; issue: string }[] = []
+    const validSources: string[] = []
+
+    for (const source of modelSources) {
+      if (fullPathPattern.test(source)) {
+        validSources.push(source)
+      } else if (shortPathPattern.test(source)) {
+        invalidSources.push({
+          source,
+          issue: 'Short format (owner/model) - model will NOT be attached!',
+        })
+      } else {
+        invalidSources.push({
+          source,
+          issue: 'Invalid format',
+        })
+      }
+    }
+
+    if (invalidSources.length > 0) {
+      results.push({
+        check: 'Model Sources Format',
+        status: 'fail',
+        message: `model_sources uses incorrect format - models will NOT be attached`,
+        details: {
+          invalid_sources: invalidSources,
+          valid_sources: validSources,
+          required_format: 'owner/model-name/Framework/variation/version',
+          example: 'manwithacat/byt5-skeleton-akkadian/Transformers/transformers/1',
+          note: 'Kaggle silently accepts short format but model is NOT mounted. Use full path with Framework/variation/version.',
+          fix: `Update model_sources in ${metadataPath}`,
+        },
+      })
+    } else if (validSources.length > 0) {
+      // Check if referenced models are actually attached
+      const attachedModelSlugs = validSources.map((s) => s.split('/')[1])
+      const missingModels = modelRefs.filter((ref) => !attachedModelSlugs.includes(ref))
+
+      if (missingModels.length > 0) {
+        results.push({
+          check: 'Model Sources',
+          status: 'fail',
+          message: `Model(s) referenced in code but not in model_sources: ${missingModels.join(', ')}`,
+          details: {
+            referenced_models: modelRefs,
+            attached_models: attachedModelSlugs,
+            missing: missingModels,
+            fix: `Add missing models to model_sources in ${metadataPath}`,
+          },
+        })
+      } else {
+        results.push({
+          check: 'Model Sources',
+          status: 'pass',
+          message: `All ${modelRefs.length} model(s) attached with correct format`,
+          details: {
+            models: validSources,
+          },
+        })
+      }
+    }
+  } catch {
+    // Ignore parse errors
   }
 
   return results
@@ -868,7 +1305,30 @@ function checkDatasetColumns(content: string): CheckResult[] {
       } else {
         // Single column name
         const col = captured.trim()
-        if (col && !['iloc', 'loc', 'values', 'index', 'columns', 'head', 'tail', 'shape'].includes(col)) {
+        if (
+          col &&
+          ![
+            // DataFrame methods/attributes
+            'iloc',
+            'loc',
+            'values',
+            'index',
+            'columns',
+            'head',
+            'tail',
+            'shape',
+            // PyTorch tensor keys (from tokenization, not DataFrame columns)
+            'input_ids',
+            'attention_mask',
+            'labels',
+            'decoder_input_ids',
+            'decoder_attention_mask',
+            'token_type_ids',
+            'pixel_values',
+            'logits',
+            'loss',
+          ].includes(col)
+        ) {
           referencedColumns.add(col)
         }
       }
@@ -884,6 +1344,24 @@ function checkDatasetColumns(content: string): CheckResult[] {
     }
   }
 
+  // Extract column rename targets - columns created by .rename(columns={"old": "new"})
+  // These are valid even if they don't exist in the original dataset
+  const renamedColumns = new Set<string>()
+  const renamePattern = /\.rename\s*\(\s*columns\s*=\s*\{([^}]+)\}/g
+  let renameMatch = renamePattern.exec(content)
+  while (renameMatch !== null) {
+    // Extract the target column names (values in the dict)
+    // Pattern: "old": "new" or 'old': 'new'
+    const dictContent = renameMatch[1]
+    const targetPattern = /["'][^"']+["']\s*:\s*["']([^"']+)["']/g
+    let targetMatch = targetPattern.exec(dictContent)
+    while (targetMatch !== null) {
+      renamedColumns.add(targetMatch[1])
+      targetMatch = targetPattern.exec(dictContent)
+    }
+    renameMatch = renamePattern.exec(content)
+  }
+
   // Validate column references against detected datasets
   for (const datasetSlug of detectedDatasets) {
     const schema = DATASET_SCHEMAS[datasetSlug]
@@ -895,7 +1373,9 @@ function checkDatasetColumns(content: string): CheckResult[] {
       const isDatasetColumn =
         schema.columns.includes(col) ||
         // Allow common derived columns
-        ['id', 'source', 'target', 'text', 'label', 'input', 'output'].includes(col)
+        ['id', 'source', 'target', 'text', 'label', 'input', 'output'].includes(col) ||
+        // Allow columns created via .rename(columns={"old": "new"})
+        renamedColumns.has(col)
 
       if (!isDatasetColumn && referencedColumns.has(col)) {
         // Check if this column is specifically accessed on data from this dataset
@@ -906,7 +1386,7 @@ function checkDatasetColumns(content: string): CheckResult[] {
 
         if (columnMatch && datasetIndex !== -1) {
           // Simple heuristic: if column is referenced and dataset is used, validate
-          if (!schema.columns.includes(col)) {
+          if (!schema.columns.includes(col) && !renamedColumns.has(col)) {
             invalidColumns.push(col)
           }
         }
@@ -1133,18 +1613,14 @@ function checkInternetDependencies(content: string, metadataPath?: string): Chec
     }
   }
 
-  // If internet is enabled, no concerns
-  if (internetEnabled && hasMetadata) {
-    return results
-  }
-
   // Check for pip install commands (both shell-style and subprocess-style)
   const shellPipInstalls = content.match(/!pip\s+install\s+[^\n]+/g) || []
-  const subprocessPipInstalls = content.match(/subprocess\.run\s*\([^)]*pip[^)]*install[^)]*\)/g) || []
-  const allPipInstalls = [...shellPipInstalls, ...subprocessPipInstalls]
+  const subprocessPipInstalls = content.match(/subprocess\.\w+\s*\([^)]*pip[^)]*install[^)]*\)/g) || []
+  const subprocessCheckCall = content.match(/subprocess\.check_call\s*\([^)]*pip[^)]*install[^)]*\)/g) || []
+  const allPipInstalls = [...shellPipInstalls, ...subprocessPipInstalls, ...subprocessCheckCall]
 
   // If internet is disabled and ANY pip install is detected, it will fail
-  if (!internetEnabled && allPipInstalls.length > 0) {
+  if (!internetEnabled && hasMetadata && allPipInstalls.length > 0) {
     results.push({
       check: 'Pip Install Blocked',
       status: 'fail',
@@ -1157,13 +1633,15 @@ function checkInternetDependencies(content: string, metadataPath?: string): Chec
       },
     })
   } else if (allPipInstalls.length > 0) {
-    // Internet enabled but warn about potential submission issues
+    // Internet enabled (or no metadata) - warn about potential submission issues
     results.push({
-      check: 'Pip Install',
+      check: 'Pip Install Warning',
       status: 'warn',
-      message: 'pip install detected - will fail if used for competition submission',
+      message: 'pip install detected - will fail if converted to competition submission (internet disabled)',
       details: {
-        note: 'Competition submissions require enable_internet=false',
+        detected: allPipInstalls.slice(0, 3).map((s) => s.slice(0, 60) + '...'),
+        note: 'Training kernels can use pip install, but submission kernels require enable_internet=false',
+        preinstalled: 'Run `akk help kaggle-packages` to see pre-installed packages',
       },
     })
   }
@@ -1541,65 +2019,94 @@ Use 'akk preflight platforms' to see available platforms.
     const datasetSourcesResults = checkDatasetSources(content, metadataPath)
     checks.push(...datasetSourcesResults)
 
+    // 0.15. Model Sources Format Check (CRITICAL - must use full path format)
+    const modelSourcesResults = checkModelSourcesFormat(content, metadataPath)
+    checks.push(...modelSourcesResults)
+
+    // Detect if this is inference-only (no training)
+    const isInferenceMode = detectInferenceMode(content)
+
     // 1. GPU Memory Check
-    const gpuEstimate = estimateGpuMemory(config)
+    const gpuEstimate = estimateGpuMemory(config, isInferenceMode)
     const gpuStatus =
       gpuEstimate.peak_gb <= platform.gpu.vram_gb * 0.9
         ? 'pass'
         : gpuEstimate.peak_gb <= platform.gpu.vram_gb
           ? 'warn'
           : 'fail'
+    const modeLabel = gpuEstimate.mode === 'inference' ? ' (inference)' : ' (training)'
     checks.push({
       check: 'GPU Memory',
       status: gpuStatus,
       message:
         gpuStatus === 'fail'
-          ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.gpu.vram_gb}GB VRAM`
+          ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.gpu.vram_gb}GB VRAM${modeLabel}`
           : gpuStatus === 'warn'
-            ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB is close to ${platform.gpu.vram_gb}GB limit`
-            : `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB fits in ${platform.gpu.vram_gb}GB VRAM`,
-      details: args.verbose ? gpuEstimate.breakdown : undefined,
+            ? `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB is close to ${platform.gpu.vram_gb}GB limit${modeLabel}`
+            : `Estimated ${gpuEstimate.peak_gb.toFixed(1)}GB fits in ${platform.gpu.vram_gb}GB VRAM${modeLabel}`,
+      details: args.verbose
+        ? {
+            ...gpuEstimate.breakdown,
+            mode: gpuEstimate.mode,
+            model: gpuEstimate.model_detected,
+          }
+        : undefined,
     })
 
     // 2. Disk Space Check (use peak_gb for actual limit, as checkpoint rotation creates temporary spikes)
-    const diskEstimate = estimateDiskUsage(config)
+    const diskEstimate = estimateDiskUsage(config, isInferenceMode)
     const diskStatus =
       diskEstimate.peak_gb <= platform.disk.working_gb * 0.8
         ? 'pass'
         : diskEstimate.peak_gb <= platform.disk.working_gb
           ? 'warn'
           : 'fail'
+    const diskModeLabel = diskEstimate.mode === 'inference' ? ' (inference)' : ' (training)'
     checks.push({
       check: 'Disk Space',
       status: diskStatus,
       message:
         diskStatus === 'fail'
-          ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.disk.working_gb}GB working space`
+          ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB exceeds ${platform.disk.working_gb}GB working space${diskModeLabel}`
           : diskStatus === 'warn'
-            ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB is close to ${platform.disk.working_gb}GB limit`
-            : `Peak ${diskEstimate.peak_gb.toFixed(1)}GB fits in ${platform.disk.working_gb}GB working space`,
-      details: args.verbose ? { ...diskEstimate.breakdown, peak_gb: diskEstimate.peak_gb } : undefined,
+            ? `Peak ${diskEstimate.peak_gb.toFixed(1)}GB is close to ${platform.disk.working_gb}GB limit${diskModeLabel}`
+            : `Peak ${diskEstimate.peak_gb.toFixed(1)}GB fits in ${platform.disk.working_gb}GB working space${diskModeLabel}`,
+      details: args.verbose
+        ? {
+            ...diskEstimate.breakdown,
+            peak_gb: diskEstimate.peak_gb,
+            mode: diskEstimate.mode,
+          }
+        : undefined,
     })
 
-    // 3. Training Time Check
-    const timeEstimate = estimateTrainingTime(config, platform, args.samples)
-    const timeStatus =
-      timeEstimate.hours <= platform.time.max_hours * 0.8
-        ? 'pass'
-        : timeEstimate.hours <= platform.time.max_hours
-          ? 'warn'
-          : 'fail'
-    checks.push({
-      check: 'Training Time',
-      status: timeStatus,
-      message:
-        timeStatus === 'fail'
-          ? `Estimated ${timeEstimate.hours.toFixed(1)}h exceeds ${platform.time.max_hours}h limit`
-          : timeStatus === 'warn'
-            ? `Estimated ${timeEstimate.hours.toFixed(1)}h is close to ${platform.time.max_hours}h limit`
-            : `Estimated ${timeEstimate.hours.toFixed(1)}h fits in ${platform.time.max_hours}h limit`,
-      details: args.verbose ? timeEstimate.breakdown : undefined,
-    })
+    // 3. Training Time Check (skip for inference-only kernels)
+    if (!isInferenceMode) {
+      const timeEstimate = estimateTrainingTime(config, platform, args.samples)
+      const timeStatus =
+        timeEstimate.hours <= platform.time.max_hours * 0.8
+          ? 'pass'
+          : timeEstimate.hours <= platform.time.max_hours
+            ? 'warn'
+            : 'fail'
+      checks.push({
+        check: 'Training Time',
+        status: timeStatus,
+        message:
+          timeStatus === 'fail'
+            ? `Estimated ${timeEstimate.hours.toFixed(1)}h exceeds ${platform.time.max_hours}h limit`
+            : timeStatus === 'warn'
+              ? `Estimated ${timeEstimate.hours.toFixed(1)}h is close to ${platform.time.max_hours}h limit`
+              : `Estimated ${timeEstimate.hours.toFixed(1)}h fits in ${platform.time.max_hours}h limit`,
+        details: args.verbose ? timeEstimate.breakdown : undefined,
+      })
+    } else {
+      checks.push({
+        check: 'Training Time',
+        status: 'pass',
+        message: 'N/A (inference-only kernel)',
+      })
+    }
 
     // 4. Batch Size Recommendation
     if (gpuStatus === 'fail' && config.batch_size && config.batch_size > 2) {
