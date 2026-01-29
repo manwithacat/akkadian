@@ -2,51 +2,18 @@
  * Upload notebook to Kaggle kernels with versioning support
  */
 
-import { existsSync, readFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
 import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
-import { convertToNotebook, createKernelMetadata, pushKernel } from '../../lib/kaggle'
+import { convertToNotebook, createKernelMetadata, injectAttribution, pushKernel } from '../../lib/kaggle'
 import { generateVersionedSlug, registerKernelVersion, type VersionedKernel } from '../../lib/kernel-registry'
 import { checkServer, logKernelUpload } from '../../lib/mlflow'
 import { error, logStep, success } from '../../lib/output'
+import { extractDatasetReferences, toSlug } from '../../lib/utils'
 import type { CommandDefinition } from '../../types/commands'
 import type { KernelMetadata } from '../../types/competition'
 import { generateVersionedKernelId, incrementVersion, KernelMetadataSchema } from '../../types/competition'
-
-/**
- * Extract dataset paths referenced in notebook code
- * (Matches preflight.ts extractDatasetReferences)
- */
-function extractDatasetReferences(content: string): string[] {
-  const datasets = new Set<string>()
-
-  // Pattern 1: Direct path strings like /kaggle/input/dataset-slug/...
-  const directPathPattern = /["']\/kaggle\/input\/([a-z0-9-]+)(?:\/[^"']*)?["']/gi
-  let match = directPathPattern.exec(content)
-  while (match !== null) {
-    datasets.add(match[1])
-    match = directPathPattern.exec(content)
-  }
-
-  // Pattern 2: KAGGLE_INPUT / "dataset-slug/file.csv" (pathlib style)
-  const pathlibPattern = /KAGGLE_INPUT\s*\/\s*["']([a-z0-9-]+)(?:\/[^"']*)?["']/gi
-  match = pathlibPattern.exec(content)
-  while (match !== null) {
-    datasets.add(match[1])
-    match = pathlibPattern.exec(content)
-  }
-
-  // Pattern 3: Path("/kaggle/input/dataset-slug/...")
-  const pathPattern = /Path\s*\(\s*["']\/kaggle\/input\/([a-z0-9-]+)/gi
-  match = pathPattern.exec(content)
-  while (match !== null) {
-    datasets.add(match[1])
-    match = pathPattern.exec(content)
-  }
-
-  return Array.from(datasets)
-}
 
 const UploadNotebookArgs = z.object({
   path: z.string().describe('Path to .py or .ipynb file'),
@@ -55,6 +22,7 @@ const UploadNotebookArgs = z.object({
   internet: z.boolean().optional().describe('Enable internet (default: from config or true)'),
   competition: z.string().optional().describe('Competition slug'),
   datasets: z.string().optional().describe('Dataset sources (comma-separated)'),
+  kernels: z.string().optional().describe('Kernel sources (comma-separated)'),
   models: z.string().optional().describe('Model sources (comma-separated)'),
   strategy: z
     .enum(['timestamp', 'semver', 'experiment', 'overwrite'])
@@ -93,6 +61,7 @@ Other Options:
   --internet   Enable internet access (default: from akk.toml kaggle.enable_internet or true)
   --competition  Competition slug for data access
   --datasets   Dataset sources (comma-separated)
+  --kernels    Kernel sources (comma-separated)
   --models     Model sources (comma-separated)
 `,
   examples: [
@@ -113,6 +82,7 @@ Other Options:
       internet: internetArg,
       competition,
       datasets,
+      kernels,
       models,
       strategy,
       noVersion,
@@ -150,6 +120,41 @@ Other Options:
 
     let ipynbPath = fullPath
     let codeFile = fileName
+
+    // Inject marketing attribution into source file
+    if (ext === '.py') {
+      const originalSource = readFileSync(fullPath, 'utf-8')
+      const attributed = injectAttribution(originalSource)
+      if (attributed !== originalSource) {
+        writeFileSync(fullPath, attributed, 'utf-8')
+        logStep({ step: 'attribution', message: 'Injected Akkadian CLI attribution' }, ctx.output)
+      }
+    } else if (ext === '.ipynb') {
+      // For .ipynb files, inject into first code cell's source
+      const nbContent = readFileSync(fullPath, 'utf-8')
+      const ATTR_LINE = 'Built with Akkadian CLI - https://github.com/manwithacat/akkadian'
+      if (!nbContent.includes(ATTR_LINE)) {
+        try {
+          const nb = JSON.parse(nbContent)
+          const firstCode = nb.cells?.find((c: { cell_type: string }) => c.cell_type === 'code')
+          if (firstCode?.source) {
+            const src = Array.isArray(firstCode.source) ? firstCode.source.join('') : firstCode.source
+            const attributed = injectAttribution(src)
+            firstCode.source = attributed.split(/(?<=\n)/)
+            writeFileSync(fullPath, JSON.stringify(nb, null, 1), 'utf-8')
+            logStep(
+              {
+                step: 'attribution',
+                message: 'Injected Akkadian CLI attribution',
+              },
+              ctx.output
+            )
+          }
+        } catch {
+          // Don't fail upload if attribution injection fails on ipynb
+        }
+      }
+    }
 
     // Convert .py to .ipynb if needed
     if (ext === '.py') {
@@ -198,7 +203,7 @@ Other Options:
           // Preview mode - show what would be created
           const compConfig = await loadCompetitionConfig(compConfigPath)
           if (compConfig) {
-            const normalizedName = kernelBaseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+            const normalizedName = toSlug(kernelBaseName)
             const existingConfig = compConfig.kernels[normalizedName]
             const currentVersion = existingConfig?.current_version || 0
             const nextVersion = currentVersion + 1
@@ -253,6 +258,7 @@ Other Options:
     }
 
     // Check for existing metadata file with versioning config
+    // First check for {baseName}-metadata.json (versioning metadata)
     const existingMetadataPath = fullPath.replace(/\.(py|ipynb)$/, '-metadata.json')
     const existingMetadataFile = Bun.file(existingMetadataPath)
     let existingMetadata: KernelMetadata | null = null
@@ -273,6 +279,43 @@ Other Options:
         }
       } catch {
         // Ignore parse errors, will create new metadata
+      }
+    }
+
+    // Also check for existing kernel-metadata.json to preserve model_sources/dataset_sources
+    // This prevents stripping sources when re-uploading kernels
+    const kernelMetadataPath = join(dir, 'kernel-metadata.json')
+    const kernelMetadataFile = Bun.file(kernelMetadataPath)
+    let existingKernelMetadata: KernelMetadata | null = null
+
+    if (await kernelMetadataFile.exists()) {
+      try {
+        const rawMetadata = await kernelMetadataFile.json()
+        const parsed = KernelMetadataSchema.safeParse(rawMetadata)
+        if (parsed.success) {
+          existingKernelMetadata = parsed.data
+          // Merge sources from kernel-metadata.json if not already set
+          if (!existingMetadata?.model_sources && existingKernelMetadata.model_sources?.length) {
+            logStep(
+              {
+                step: 'metadata',
+                message: `Preserving ${existingKernelMetadata.model_sources.length} model_sources from kernel-metadata.json`,
+              },
+              ctx.output
+            )
+          }
+          if (!existingMetadata?.kernel_sources && existingKernelMetadata.kernel_sources?.length) {
+            logStep(
+              {
+                step: 'metadata',
+                message: `Preserving ${existingKernelMetadata.kernel_sources.length} kernel_sources from kernel-metadata.json`,
+              },
+              ctx.output
+            )
+          }
+        }
+      } catch {
+        // Ignore parse errors
       }
     }
 
@@ -301,7 +344,7 @@ Other Options:
       finalTitle = versionedKernel.slug
     } else {
       // Fallback to simple naming
-      finalKernelId = `${username}/${kernelTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+      finalKernelId = `${username}/${toSlug(kernelTitle)}`
       finalTitle = kernelTitle
     }
 
@@ -353,6 +396,25 @@ Other Options:
           ? existingMetadata.enable_internet
           : (config?.kaggle?.enable_internet ?? true)
 
+    // Resolve model and dataset sources with proper priority:
+    // 1. Command line args (--models, --datasets)
+    // 2. {baseName}-metadata.json (versioning metadata)
+    // 3. Existing kernel-metadata.json (preserve on re-upload)
+    const resolvedModels =
+      models?.split(',').map((s) => s.trim()) ||
+      existingMetadata?.model_sources ||
+      existingKernelMetadata?.model_sources
+
+    const resolvedDatasets =
+      datasets?.split(',').map((s) => s.trim()) ||
+      existingMetadata?.dataset_sources ||
+      existingKernelMetadata?.dataset_sources
+
+    const resolvedKernels =
+      kernels?.split(',').map((s) => s.trim()) ||
+      existingMetadata?.kernel_sources ||
+      existingKernelMetadata?.kernel_sources
+
     const metadata = createKernelMetadata({
       username,
       title: finalTitle,
@@ -360,8 +422,9 @@ Other Options:
       enableGpu: gpu,
       enableInternet: effectiveInternet,
       competition: competitionSlug,
-      datasets: existingMetadata?.dataset_sources || datasets?.split(',').map((s) => s.trim()),
-      models: existingMetadata?.model_sources || models?.split(',').map((s) => s.trim()),
+      datasets: resolvedDatasets,
+      kernels: resolvedKernels,
+      models: resolvedModels,
     })
 
     // Override ID if we computed it from versioning

@@ -2,6 +2,7 @@
  * Configuration handling for Akkadian CLI
  */
 
+import TOML from '@iarna/toml'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import type { AkkConfig } from '../types/commands'
@@ -41,134 +42,10 @@ export function getProjectRoot(configPath: string): string {
 }
 
 /**
- * Parse a TOML value (string, number, boolean, array)
- */
-function parseTomlValue(value: string): unknown {
-  const trimmed = value.trim()
-
-  // Boolean
-  if (trimmed === 'true') return true
-  if (trimmed === 'false') return false
-
-  // Integer
-  if (/^-?\d+$/.test(trimmed)) return parseInt(trimmed, 10)
-
-  // Float
-  if (/^-?\d+\.\d+$/.test(trimmed)) return parseFloat(trimmed)
-
-  // Array
-  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-    const inner = trimmed.slice(1, -1).trim()
-    if (!inner) return []
-    // Split by comma, respecting quoted strings
-    const items: unknown[] = []
-    let current = ''
-    let inString = false
-    let stringChar = ''
-    for (let i = 0; i < inner.length; i++) {
-      const char = inner[i]
-      if (!inString && (char === '"' || char === "'")) {
-        inString = true
-        stringChar = char
-        current += char
-      } else if (inString && char === stringChar) {
-        inString = false
-        current += char
-      } else if (!inString && char === ',') {
-        items.push(parseTomlValue(current.trim()))
-        current = ''
-      } else {
-        current += char
-      }
-    }
-    if (current.trim()) {
-      items.push(parseTomlValue(current.trim()))
-    }
-    return items
-  }
-
-  // Quoted string
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1)
-  }
-
-  // Unquoted string
-  return trimmed
-}
-
-/**
- * Parse TOML content (enhanced parser for competition.toml)
+ * Parse TOML content using @iarna/toml
  */
 function parseToml(content: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  let currentSection: Record<string, unknown> = result
-  let _currentArraySection: string | null = null
-  let currentArrayItem: Record<string, unknown> | null = null
-
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim()
-
-    // Skip empty lines and comments
-    if (!trimmed || trimmed.startsWith('#')) continue
-
-    // Array of tables [[section.name]]
-    const arrayMatch = trimmed.match(/^\[\[([^\]]+)\]\]$/)
-    if (arrayMatch) {
-      const sectionName = arrayMatch[1]
-      const parts = sectionName.split('.')
-      let target = result
-
-      // Navigate to parent, creating as needed
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i]
-        if (!(part in target)) {
-          target[part] = {}
-        }
-        target = target[part] as Record<string, unknown>
-      }
-
-      // Get or create the array
-      const arrayName = parts[parts.length - 1]
-      if (!(arrayName in target)) {
-        target[arrayName] = []
-      }
-
-      // Create new item and add to array
-      currentArrayItem = {}
-      ;(target[arrayName] as unknown[]).push(currentArrayItem)
-      currentSection = currentArrayItem
-      _currentArraySection = sectionName
-      continue
-    }
-
-    // Section header [section.name]
-    const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/)
-    if (sectionMatch) {
-      _currentArraySection = null
-      currentArrayItem = null
-      const sectionName = sectionMatch[1]
-      const parts = sectionName.split('.')
-      let target = result
-      for (const part of parts) {
-        if (!(part in target)) {
-          target[part] = {}
-        }
-        target = target[part] as Record<string, unknown>
-      }
-      currentSection = target
-      continue
-    }
-
-    // Key-value pair
-    const kvMatch = trimmed.match(/^([^=]+)=\s*(.+)$/)
-    if (kvMatch) {
-      const key = kvMatch[1].trim()
-      const value = parseTomlValue(kvMatch[2])
-      currentSection[key] = value
-    }
-  }
-
-  return result
+  return TOML.parse(content) as unknown as Record<string, unknown>
 }
 
 /**

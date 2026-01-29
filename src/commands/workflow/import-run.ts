@@ -66,7 +66,7 @@ Examples:
 
     // Read status
     const statusFile = Bun.file(statusPath)
-    let status: any
+    let status: Record<string, unknown>
     try {
       status = JSON.parse(await statusFile.text())
     } catch {

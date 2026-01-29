@@ -7,6 +7,7 @@
  * - Version: Actual model files
  */
 
+import { existsSync, statSync } from 'fs'
 import { basename, join } from 'path'
 import { z } from 'zod'
 import {
@@ -91,9 +92,7 @@ Options:
     const fullPath = modelPath.startsWith('/') ? modelPath : join(ctx.cwd, modelPath)
 
     // Check directory exists
-    const proc = Bun.spawn(['test', '-d', fullPath])
-    await proc.exited
-    const isDir = (await proc.exited) === 0
+    const isDir = existsSync(fullPath) && statSync(fullPath).isDirectory()
 
     if (!isDir) {
       return error('DIR_NOT_FOUND', `Directory not found: ${fullPath}`, 'Provide a valid model directory', {
@@ -191,7 +190,13 @@ Options:
     if (!instanceResult.success) {
       // Instance might exist, try creating a new version
       if (instanceResult.message.includes('already exists') || instanceResult.message.includes('duplicate')) {
-        logStep({ step: 'version', message: 'Instance exists, creating new version...' }, ctx.output)
+        logStep(
+          {
+            step: 'version',
+            message: 'Instance exists, creating new version...',
+          },
+          ctx.output
+        )
 
         const versionResult = await createModelVersion(instancePath, fullPath, notes)
         if (!versionResult.success) {

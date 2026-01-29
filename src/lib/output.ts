@@ -243,32 +243,6 @@ export function info(message: string, options: OutputOptions): void {
   }
 }
 
-/**
- * Common error codes and their agent hints
- */
-export const ErrorHints = {
-  NO_PROJECT: {
-    code: 'NO_PROJECT',
-    hint: 'Run this command from the Akkadian project root, or use --cwd to specify the path',
-  },
-  KAGGLE_AUTH: {
-    code: 'KAGGLE_AUTH',
-    hint: 'Ensure ~/.kaggle/kaggle.json exists with valid credentials',
-  },
-  GCS_AUTH: {
-    code: 'GCS_AUTH',
-    hint: 'Run `gcloud auth login` to authenticate with Google Cloud',
-  },
-  MLFLOW_NOT_RUNNING: {
-    code: 'MLFLOW_NOT_RUNNING',
-    hint: 'Start MLFlow server with `akk mlflow start`',
-  },
-  NOT_FOUND: {
-    code: 'NOT_FOUND',
-    hint: 'Check the path or name spelling',
-  },
-} as const
-
 // ============================================
 // Simple print helpers for command output
 // ============================================

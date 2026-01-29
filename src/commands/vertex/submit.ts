@@ -2,16 +2,15 @@
  * Submit training job to Vertex AI
  */
 
+import { spawn } from 'child_process'
 import { z } from 'zod'
 import { error, logStep, success } from '../../lib/output'
 import type { CommandDefinition } from '../../types/commands'
+import type { OutputOptions } from '../../types/output'
 
-// Simple info logging
-function info(msg: string, _output: any): void {
-  console.log(msg)
+function info(msg: string, output: OutputOptions): void {
+  logStep({ step: 'vertex', message: msg }, output)
 }
-
-import { spawn } from 'child_process'
 
 const SubmitArgs = z.object({
   // Machine type

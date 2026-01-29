@@ -2,16 +2,15 @@
  * List Vertex AI jobs
  */
 
-import { z } from 'zod'
-import { error, success } from '../../lib/output'
-import type { CommandDefinition } from '../../types/commands'
-
-// Simple info logging
-function info(msg: string, _output: any): void {
-  console.log(msg)
-}
-
 import { spawn } from 'child_process'
+import { z } from 'zod'
+import { error, logStep, success } from '../../lib/output'
+import type { CommandDefinition } from '../../types/commands'
+import type { OutputOptions } from '../../types/output'
+
+function info(msg: string, output: OutputOptions): void {
+  logStep({ step: 'vertex', message: msg }, output)
+}
 
 const ListArgs = z.object({
   region: z.string().default('us-central1').describe('GCP region'),
@@ -79,7 +78,7 @@ Options:
       }
 
       return success({
-        jobs: jobs.map((j: any) => ({
+        jobs: jobs.map((j: Record<string, unknown>) => ({
           name: j.displayName,
           state: j.state,
           createTime: j.createTime,

@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from 'fs'
 import { basename, dirname, extname, join } from 'path'
 import { z } from 'zod'
+import { getModelInstanceFiles } from '../../lib/kaggle'
 import { error, success } from '../../lib/output'
+import { extractDatasetReferences } from '../../lib/utils'
 import type { CommandDefinition } from '../../types/commands'
 import { PLATFORMS, type PlatformProfile } from './platforms'
 
@@ -325,15 +327,25 @@ function extractConfig(content: string): ExtractedConfig {
  *
  * @param config - Extracted configuration from the notebook
  * @param inferenceMode - If true, estimates for inference-only (much lower memory)
+ * @param sequentialInfo - Optional sequential loading info for multi-stage pipelines
+ * @param allModelPaths - Optional list of all model paths for sequential estimation
  */
 function estimateGpuMemory(
   config: ExtractedConfig,
-  inferenceMode: boolean = false
+  inferenceMode: boolean = false,
+  sequentialInfo?: SequentialLoadingInfo,
+  allModelPaths?: string[]
 ): {
   peak_gb: number
   breakdown: Record<string, number>
   mode: 'training' | 'inference'
   model_detected: string
+  sequential_loading?: {
+    detected: boolean
+    stages: number
+    peak_stage_models: number
+    note: string
+  }
 } {
   // Use fuzzy model matching
   const modelInfo = findModelInfo(config.model_name)
@@ -346,6 +358,72 @@ function estimateGpuMemory(
 
   const breakdown: Record<string, number> = {}
 
+  // Check for sequential loading - if detected, calculate peak memory differently
+  if (sequentialInfo?.isSequential && allModelPaths && allModelPaths.length > 1) {
+    // Sequential loading detected - calculate peak memory for largest stage
+    // instead of summing all models
+
+    // Calculate memory for each stage and find the peak
+    let peakStageMemory = 0
+    let peakStageModels: string[] = []
+
+    for (const stage of sequentialInfo.stages) {
+      // Estimate memory for this stage's models
+      let stageMemory = 0
+      for (const modelVar of stage.models) {
+        // Try to find matching model path
+        const matchingPath = allModelPaths.find((p) =>
+          p.toLowerCase().includes(modelVar.toLowerCase().replace('_model', '').replace('model', ''))
+        )
+        const stageModelInfo = matchingPath ? findModelInfo(matchingPath) : modelInfo
+        const stageModelSize = stageModelInfo?.size_gb || modelSize
+
+        if (inferenceMode) {
+          // Inference memory per model
+          const weights = fp16 ? stageModelSize : stageModelSize * 2
+          const activations = stageModelSize * 0.2 * (batchSize / 4)
+          stageMemory += weights + activations
+        } else {
+          // Training memory per model
+          const weights = fp16 ? stageModelSize : stageModelSize * 2
+          stageMemory += weights * 4 // weights + optimizer + gradients
+        }
+      }
+
+      // Add KV cache and overhead once per stage
+      if (inferenceMode) {
+        const numLayers = Math.ceil((modelInfo?.params_b || 0.5) * 24)
+        stageMemory += (batchSize * seqLen * numLayers * 2) / (1024 * 1024) // KV cache
+        stageMemory += 0.3 // CUDA overhead
+      } else {
+        stageMemory += 0.5 // CUDA overhead
+      }
+
+      if (stageMemory > peakStageMemory) {
+        peakStageMemory = stageMemory
+        peakStageModels = stage.models
+      }
+    }
+
+    // Use peak stage memory instead of sum
+    breakdown.peak_stage_models = peakStageMemory
+    breakdown.sequential_note = 0.01 // Marker
+
+    return {
+      peak_gb: peakStageMemory,
+      breakdown,
+      mode: inferenceMode ? 'inference' : 'training',
+      model_detected: `${modelName} (sequential: ${sequentialInfo.stages.length} stages)`,
+      sequential_loading: {
+        detected: true,
+        stages: sequentialInfo.stages.length,
+        peak_stage_models: peakStageModels.length,
+        note: `Memory calculated for peak stage (${peakStageModels.join(', ')}) - models freed between stages`,
+      },
+    }
+  }
+
+  // Standard (non-sequential) memory estimation
   if (inferenceMode) {
     // INFERENCE MODE: Much simpler memory requirements
     // Only need model weights + small activation buffer
@@ -353,7 +431,7 @@ function estimateGpuMemory(
 
     // KV cache for generation (smaller than training activations)
     // ~2KB per token per layer for typical models
-    const numLayers = Math.ceil(modelInfo?.params_b || 0.5 * 24) // Estimate layers
+    const numLayers = Math.ceil((modelInfo?.params_b || 0.5) * 24) // Estimate layers
     breakdown.kv_cache = (batchSize * seqLen * numLayers * 2) / (1024 * 1024) // KB to GB
 
     // Small activation buffer for current forward pass
@@ -960,46 +1038,6 @@ function checkProgressBarsDisabled(content: string): CheckResult[] {
 }
 
 /**
- * Extract dataset paths referenced in notebook code
- *
- * Looks for patterns like:
- * - /kaggle/input/dataset-slug/file.csv
- * - KAGGLE_INPUT / "dataset-slug" / ...
- * - Path("/kaggle/input/dataset-slug/...")
- */
-function extractDatasetReferences(content: string): string[] {
-  const datasets = new Set<string>()
-
-  // Pattern 1: Direct path strings like /kaggle/input/dataset-slug/...
-  // Matches: "/kaggle/input/dataset-slug" or "/kaggle/input/dataset-slug/file.csv"
-  const directPathPattern = /["']\/kaggle\/input\/([a-z0-9-]+)(?:\/[^"']*)?["']/gi
-  let match = directPathPattern.exec(content)
-  while (match !== null) {
-    datasets.add(match[1])
-    match = directPathPattern.exec(content)
-  }
-
-  // Pattern 2: KAGGLE_INPUT / "dataset-slug/file.csv" (pathlib style)
-  // Matches: KAGGLE_INPUT / "dataset-slug" or KAGGLE_INPUT / "dataset-slug/file.csv"
-  const pathlibPattern = /KAGGLE_INPUT\s*\/\s*["']([a-z0-9-]+)(?:\/[^"']*)?["']/gi
-  match = pathlibPattern.exec(content)
-  while (match !== null) {
-    datasets.add(match[1])
-    match = pathlibPattern.exec(content)
-  }
-
-  // Pattern 3: Path("/kaggle/input/dataset-slug/...")
-  const pathPattern = /Path\s*\(\s*["']\/kaggle\/input\/([a-z0-9-]+)/gi
-  match = pathPattern.exec(content)
-  while (match !== null) {
-    datasets.add(match[1])
-    match = pathPattern.exec(content)
-  }
-
-  return Array.from(datasets)
-}
-
-/**
  * Check that all dataset paths referenced in code are attached to the kernel
  *
  * CRITICAL: Kaggle kernels can only access datasets explicitly attached
@@ -1230,6 +1268,97 @@ function checkModelSourcesFormat(content: string, metadataPath?: string): CheckR
           },
         })
       }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
+  return results
+}
+
+/**
+ * Verify that model_sources actually exist on Kaggle.
+ *
+ * This makes API calls to verify each model exists, preventing the common issue
+ * where a kernel is uploaded with a model reference that doesn't exist or
+ * uses an incorrect path format.
+ */
+async function verifyModelSourcesExist(metadataPath?: string): Promise<CheckResult[]> {
+  const results: CheckResult[] = []
+
+  if (!metadataPath || !existsSync(metadataPath)) {
+    return results
+  }
+
+  try {
+    const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'))
+    const modelSources: string[] = metadata.model_sources || []
+
+    if (modelSources.length === 0) {
+      return results
+    }
+
+    // Verify each model source exists
+    const verificationResults: {
+      source: string
+      exists: boolean
+      error?: string
+    }[] = []
+
+    for (const source of modelSources) {
+      // Only verify full-format sources (owner/model/framework/instance/version)
+      const parts = source.split('/')
+      if (parts.length < 5) {
+        continue // Skip short format, already flagged by format check
+      }
+
+      // Use full version path (owner/model/framework/instance/version)
+      // Note: We use the full path because `kaggle models instances files`
+      // has a bug, but `kaggle models instances versions files` works correctly
+      const versionPath = source
+
+      try {
+        const result = await getModelInstanceFiles(versionPath)
+        verificationResults.push({
+          source,
+          exists: result.success,
+          error: result.success ? undefined : result.message,
+        })
+      } catch (err) {
+        verificationResults.push({
+          source,
+          exists: false,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        })
+      }
+    }
+
+    const missingModels = verificationResults.filter((r) => !r.exists)
+    const existingModels = verificationResults.filter((r) => r.exists)
+
+    if (missingModels.length > 0) {
+      results.push({
+        check: 'Model Existence',
+        status: 'fail',
+        message: `${missingModels.length} model(s) not found on Kaggle`,
+        details: {
+          missing: missingModels.map((m) => ({
+            source: m.source,
+            error: m.error,
+          })),
+          existing: existingModels.map((m) => m.source),
+          fix: "Verify model paths are correct and models are published. Use 'kaggle models instances files <path>' to check.",
+        },
+      })
+    } else if (existingModels.length > 0) {
+      results.push({
+        check: 'Model Existence',
+        status: 'pass',
+        message: `All ${existingModels.length} model(s) verified on Kaggle`,
+        details: {
+          models: existingModels.map((m) => m.source),
+        },
+      })
     }
   } catch {
     // Ignore parse errors
@@ -1743,6 +1872,436 @@ function checkInternetDependencies(content: string, metadataPath?: string): Chec
 }
 
 /**
+ * Check for AutoTokenizer/AutoModel with local Kaggle Model paths
+ *
+ * ISSUE: Newer versions of HuggingFace transformers validate the path argument
+ * before checking if it's a local directory. Paths like:
+ *   /kaggle/input/model-name/pytorch/transformers/1
+ *
+ * Are rejected with:
+ *   HFValidationError: Repo id must be in the form 'repo_name' or 'namespace/repo_name'
+ *
+ * FIX: Use model-specific classes (T5Tokenizer, T5ForConditionalGeneration) instead
+ * of Auto classes, or use the model config to load explicitly.
+ */
+function checkAutoClassWithLocalPath(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Find Auto class usage with Kaggle Model paths
+  // Pattern: AutoTokenizer.from_pretrained(PATH) where PATH is a variable containing /kaggle/input/
+  const autoClassPatterns = [
+    /AutoTokenizer\.from_pretrained\s*\(\s*([A-Z_]+)\s*(?:,|\))/g,
+    /AutoModelForSeq2SeqLM\.from_pretrained\s*\(\s*([A-Z_]+)\s*(?:,|\))/g,
+    /AutoModel\.from_pretrained\s*\(\s*([A-Z_]+)\s*(?:,|\))/g,
+    /AutoModelForCausalLM\.from_pretrained\s*\(\s*([A-Z_]+)\s*(?:,|\))/g,
+  ]
+
+  // Collect variable names used in Auto class calls
+  const autoClassVars = new Set<string>()
+  for (const pattern of autoClassPatterns) {
+    let match
+    while ((match = pattern.exec(content)) !== null) {
+      autoClassVars.add(match[1])
+    }
+  }
+
+  // Check if any of these variables are Kaggle Model paths (deep paths with multiple segments)
+  // Kaggle Model paths look like: /kaggle/input/model-slug/pytorch/transformers/1
+  const kaggleModelPathPattern = /([A-Z_]+)\s*=\s*["']?(\/kaggle\/input\/[^"'\s]+\/[^"'\s]+\/[^"'\s]+\/\d+)["']?/g
+  const kaggleModelPaths: Array<{ varName: string; path: string }> = []
+
+  let pathMatch
+  while ((pathMatch = kaggleModelPathPattern.exec(content)) !== null) {
+    kaggleModelPaths.push({ varName: pathMatch[1], path: pathMatch[2] })
+  }
+
+  // Find Auto class calls using Kaggle Model path variables
+  const problematicCalls: Array<{ varName: string; path: string }> = []
+  for (const { varName, path } of kaggleModelPaths) {
+    if (autoClassVars.has(varName)) {
+      problematicCalls.push({ varName, path })
+    }
+  }
+
+  // Also check for direct string literals
+  const directAutoClassPatterns = [
+    /AutoTokenizer\.from_pretrained\s*\(\s*["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']/g,
+    /AutoModelForSeq2SeqLM\.from_pretrained\s*\(\s*["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']/g,
+  ]
+
+  for (const pattern of directAutoClassPatterns) {
+    let match
+    while ((match = pattern.exec(content)) !== null) {
+      problematicCalls.push({ varName: 'direct', path: match[1] })
+    }
+  }
+
+  if (problematicCalls.length > 0) {
+    // Detect model type from path to suggest correct class
+    const modelTypeHints: Record<string, { tokenizer: string; model: string }> = {
+      t5: { tokenizer: 'T5Tokenizer', model: 'T5ForConditionalGeneration' },
+      'flan-t5': {
+        tokenizer: 'T5Tokenizer',
+        model: 'T5ForConditionalGeneration',
+      },
+      byt5: {
+        tokenizer: 'ByT5Tokenizer',
+        model: 'T5ForConditionalGeneration',
+      },
+      bart: {
+        tokenizer: 'BartTokenizer',
+        model: 'BartForConditionalGeneration',
+      },
+      mbart: {
+        tokenizer: 'MBartTokenizer',
+        model: 'MBartForConditionalGeneration',
+      },
+      nllb: { tokenizer: 'NllbTokenizer', model: 'AutoModelForSeq2SeqLM' },
+    }
+
+    // Try to detect model type from path
+    const path = problematicCalls[0].path.toLowerCase()
+    let suggestion = {
+      tokenizer: 'T5Tokenizer',
+      model: 'T5ForConditionalGeneration',
+    } // default
+    for (const [hint, classes] of Object.entries(modelTypeHints)) {
+      if (path.includes(hint)) {
+        suggestion = classes
+        break
+      }
+    }
+
+    results.push({
+      check: 'Auto Class with Local Path',
+      status: 'fail',
+      message: 'AutoTokenizer/AutoModel with Kaggle Model paths will fail due to HF repo ID validation',
+      details: {
+        problematic_paths: problematicCalls.map((p) => p.path),
+        error: "HFValidationError: Repo id must be in the form 'repo_name' or 'namespace/repo_name'",
+        reason: 'Newer transformers validates paths as HuggingFace repo IDs before checking if local',
+        fix: `Use model-specific classes instead of Auto classes:
+  from transformers import ${suggestion.tokenizer}, ${suggestion.model}
+  tokenizer = ${suggestion.tokenizer}.from_pretrained(MODEL_PATH)
+  model = ${suggestion.model}.from_pretrained(MODEL_PATH)`,
+        note: 'This issue affects Kaggle Models with deep paths like /kaggle/input/model/pytorch/transformers/1',
+      },
+    })
+  }
+
+  return results
+}
+
+/**
+ * Check for model-specific classes used with Kaggle Model paths without local_files_only=True
+ *
+ * Even model-specific classes like T5Tokenizer, T5ForConditionalGeneration, etc.
+ * will fail with HF repo ID validation when loading from Kaggle Model paths
+ * unless local_files_only=True is specified.
+ *
+ * Kaggle Model paths look like: /kaggle/input/model-slug/pytorch/transformers/1
+ *
+ * FIX: Add local_files_only=True to the from_pretrained() call
+ */
+function checkLocalFilesOnlyMissing(content: string): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Model-specific classes that need local_files_only=True for Kaggle Model paths
+  const modelClasses = [
+    'T5Tokenizer',
+    'T5ForConditionalGeneration',
+    'ByT5Tokenizer',
+    'BartTokenizer',
+    'BartForConditionalGeneration',
+    'MBartTokenizer',
+    'MBartForConditionalGeneration',
+    'NllbTokenizer',
+    'GPT2Tokenizer',
+    'GPT2LMHeadModel',
+    'BertTokenizer',
+    'BertModel',
+    'RobertaTokenizer',
+    'RobertaModel',
+  ]
+
+  // Find Kaggle Model path variables (deep paths with /pytorch/transformers/1 or similar)
+  // Handle various assignment patterns:
+  // 1. VAR = "/kaggle/input/.../1"
+  // 2. VAR = (\n    "/kaggle/input/.../1"\n)
+  // 3. var_name = "/kaggle/input/.../1"
+  const kaggleModelPaths = new Map<string, string>()
+
+  // Pattern 1: Single-line assignment
+  const singleLinePattern = /([A-Z_][A-Z0-9_]*)\s*=\s*["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']/gi
+  let pathMatch
+  while ((pathMatch = singleLinePattern.exec(content)) !== null) {
+    kaggleModelPaths.set(pathMatch[1], pathMatch[2])
+  }
+
+  // Pattern 2: Multi-line with parentheses (common Python formatting)
+  const multiLinePattern = /([A-Z_][A-Z0-9_]*)\s*=\s*\(\s*["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']\s*\)/gi
+  while ((pathMatch = multiLinePattern.exec(content)) !== null) {
+    kaggleModelPaths.set(pathMatch[1], pathMatch[2])
+  }
+
+  // Pattern 3: Lowercase variable names (single-line)
+  const lowerSinglePattern = /([a-z_][a-z0-9_]*)\s*=\s*["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']/gi
+  while ((pathMatch = lowerSinglePattern.exec(content)) !== null) {
+    kaggleModelPaths.set(pathMatch[1], pathMatch[2])
+  }
+
+  // Pattern 4: Lowercase variable names (multi-line)
+  const lowerMultiPattern =
+    /([a-z_][a-z0-9_]*)\s*=\s*\(\s*["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']\s*\)/gi
+  while ((pathMatch = lowerMultiPattern.exec(content)) !== null) {
+    kaggleModelPaths.set(pathMatch[1], pathMatch[2])
+  }
+
+  if (kaggleModelPaths.size === 0) {
+    return results // No Kaggle Model paths detected
+  }
+
+  // Check each model class for from_pretrained calls without local_files_only
+  const problematicCalls: Array<{
+    className: string
+    path: string
+    line: string
+  }> = []
+
+  for (const className of modelClasses) {
+    // Pattern: ClassName.from_pretrained(VAR_NAME or "path", ...) without local_files_only
+    const classPattern = new RegExp(`(${className}\\.from_pretrained\\s*\\([^)]+\\))`, 'g')
+
+    let classMatch
+    while ((classMatch = classPattern.exec(content)) !== null) {
+      const fullCall = classMatch[1]
+
+      // Check if this call uses a Kaggle Model path variable
+      let usesKagglePath = false
+      let pathUsed = ''
+
+      for (const [varName, path] of kaggleModelPaths) {
+        // Check if variable name is used in the call (case insensitive for matching)
+        if (fullCall.includes(varName) || fullCall.toLowerCase().includes(varName.toLowerCase())) {
+          usesKagglePath = true
+          pathUsed = path
+          break
+        }
+      }
+
+      // Also check for direct string literals
+      const directPathMatch = fullCall.match(/["'](\/kaggle\/input\/[^"']+\/[^"']+\/[^"']+\/\d+)["']/)
+      if (directPathMatch) {
+        usesKagglePath = true
+        pathUsed = directPathMatch[1]
+      }
+
+      if (usesKagglePath) {
+        // Check if local_files_only=True is present
+        if (!fullCall.includes('local_files_only')) {
+          problematicCalls.push({
+            className,
+            path: pathUsed,
+            line: fullCall.slice(0, 100),
+          })
+        }
+      }
+    }
+  }
+
+  if (problematicCalls.length > 0) {
+    const uniqueClasses = [...new Set(problematicCalls.map((c) => c.className))]
+    const uniquePaths = [...new Set(problematicCalls.map((c) => c.path))]
+
+    results.push({
+      check: 'Local Files Only Missing',
+      status: 'fail',
+      message: 'Model classes with Kaggle Model paths will fail without local_files_only=True',
+      details: {
+        classes: uniqueClasses,
+        paths: uniquePaths,
+        error: "HFValidationError: Repo id must be in the form 'repo_name' or 'namespace/repo_name'",
+        reason:
+          'Newer transformers validates paths as HuggingFace repo IDs before checking if local, even for model-specific classes',
+        fix: `Add local_files_only=True to from_pretrained() calls:
+  tokenizer = ${uniqueClasses[0]}.from_pretrained(MODEL_PATH, local_files_only=True)
+  model = ${uniqueClasses.length > 1 ? uniqueClasses[1] : uniqueClasses[0]}.from_pretrained(MODEL_PATH, local_files_only=True)`,
+        note: 'This bypasses HuggingFace Hub validation and loads directly from local path',
+      },
+    })
+  }
+
+  return results
+}
+
+/**
+ * Detect sequential model loading pattern for multi-stage pipelines
+ *
+ * Sequential loading pattern:
+ * 1. Load model A
+ * 2. Run inference
+ * 3. Delete model A (del model + gc.collect() + torch.cuda.empty_cache())
+ * 4. Load model B
+ *
+ * This pattern allows larger models to fit in limited VRAM by not loading
+ * all models simultaneously.
+ */
+interface SequentialLoadingInfo {
+  isSequential: boolean
+  stages: Array<{
+    models: string[]
+    hasCleanup: boolean
+  }>
+  peakModels: string[]
+  estimatedPeakCount: number
+}
+
+function detectSequentialLoading(content: string): SequentialLoadingInfo {
+  // Detect memory cleanup patterns
+  const cleanupPatterns = [
+    /del\s+\w+.*\n.*gc\.collect\s*\(\)/s,
+    /gc\.collect\s*\(\).*\n.*torch\.cuda\.empty_cache\s*\(\)/s,
+    /del\s+\w+_model.*\n/g,
+    /torch\.cuda\.empty_cache\s*\(\)/g,
+  ]
+
+  const hasCleanupPattern = cleanupPatterns.some((p) => p.test(content))
+
+  // Find all model loading calls
+  const modelLoadPattern =
+    /(\w+)\s*=\s*(?:AutoModelForSeq2SeqLM|T5ForConditionalGeneration|AutoModel\w*)\.from_pretrained/g
+  const modelLoads: Array<{ varName: string; position: number }> = []
+  let match
+  while ((match = modelLoadPattern.exec(content)) !== null) {
+    modelLoads.push({ varName: match[1], position: match.index })
+  }
+
+  // Find all model deletions
+  const modelDelPattern = /del\s+(\w+)(?:\s*,\s*(\w+))*/g
+  const modelDeletions: Array<{ varNames: string[]; position: number }> = []
+  while ((match = modelDelPattern.exec(content)) !== null) {
+    const fullMatch = match[0]
+    const vars = fullMatch
+      .replace('del ', '')
+      .split(',')
+      .map((v) => v.trim())
+    modelDeletions.push({ varNames: vars, position: match.index })
+  }
+
+  // Find gc.collect() + empty_cache() calls
+  const gcPattern = /gc\.collect\s*\(\)/g
+  const gcCalls: number[] = []
+  while ((match = gcPattern.exec(content)) !== null) {
+    gcCalls.push(match.index)
+  }
+
+  const emptyCachePattern = /torch\.cuda\.empty_cache\s*\(\)/g
+  const emptyCacheCalls: number[] = []
+  while ((match = emptyCachePattern.exec(content)) !== null) {
+    emptyCacheCalls.push(match.index)
+  }
+
+  // Determine if this is sequential loading
+  // Heuristics:
+  // 1. Multiple model loads exist
+  // 2. Deletions exist between loads
+  // 3. gc.collect() and/or empty_cache() are called
+
+  if (modelLoads.length <= 1) {
+    return {
+      isSequential: false,
+      stages: [{ models: modelLoads.map((m) => m.varName), hasCleanup: false }],
+      peakModels: modelLoads.map((m) => m.varName),
+      estimatedPeakCount: modelLoads.length,
+    }
+  }
+
+  // Check for cleanup between model loads
+  const stages: Array<{ models: string[]; hasCleanup: boolean }> = []
+  let currentStageModels: string[] = []
+  let lastLoadPosition = 0
+
+  for (let i = 0; i < modelLoads.length; i++) {
+    const load = modelLoads[i]
+
+    // Check if there's a deletion + gc.collect between previous load and this one
+    const hasCleanupBetween = modelDeletions.some(
+      (d) =>
+        d.position > lastLoadPosition &&
+        d.position < load.position &&
+        gcCalls.some((gc) => gc > d.position && gc < load.position)
+    )
+
+    if (hasCleanupBetween && currentStageModels.length > 0) {
+      // End current stage, start new one
+      stages.push({ models: currentStageModels, hasCleanup: true })
+      currentStageModels = [load.varName]
+    } else {
+      currentStageModels.push(load.varName)
+    }
+
+    lastLoadPosition = load.position
+  }
+
+  // Add final stage
+  if (currentStageModels.length > 0) {
+    stages.push({ models: currentStageModels, hasCleanup: false })
+  }
+
+  // Determine peak models (max models loaded simultaneously in any stage)
+  const peakStage = stages.reduce((max, stage) => (stage.models.length > max.models.length ? stage : max), stages[0])
+
+  const isSequential = stages.length > 1 && hasCleanupPattern
+
+  return {
+    isSequential,
+    stages,
+    peakModels: peakStage.models,
+    estimatedPeakCount: peakStage.models.length,
+  }
+}
+
+/**
+ * Extract all model paths from content for sequential memory estimation
+ */
+function extractAllModelPaths(content: string): string[] {
+  const modelPaths: string[] = []
+
+  // Model path variable patterns
+  const pathPatterns = [
+    /([A-Z_]*MODEL[A-Z_]*_PATH|[A-Z_]*_PATH|MODEL\d*_PATH)\s*=\s*["']([^"']+)["']/g,
+    /([A-Z_]*PHILOLOGIST[A-Z_]*)\s*=\s*["']([^"']+)["']/g,
+  ]
+
+  for (const pattern of pathPatterns) {
+    let match
+    while ((match = pattern.exec(content)) !== null) {
+      const path = match[2]
+      if (
+        path.includes('/kaggle/input/') ||
+        path.includes('google/') ||
+        path.includes('facebook/') ||
+        path.includes('model')
+      ) {
+        modelPaths.push(path)
+      }
+    }
+  }
+
+  // Also extract from direct from_pretrained calls
+  const fromPretrainedPattern = /from_pretrained\s*\(\s*["']([^"']+)["']/g
+  let match
+  while ((match = fromPretrainedPattern.exec(content)) !== null) {
+    const path = match[1]
+    if (!modelPaths.includes(path)) {
+      modelPaths.push(path)
+    }
+  }
+
+  return modelPaths
+}
+
+/**
  * Check for compute_metrics callback when metric_for_best_model is set
  *
  * When using custom metrics like chrf, bleu for early stopping or best model selection,
@@ -2023,11 +2582,31 @@ Use 'akk preflight platforms' to see available platforms.
     const modelSourcesResults = checkModelSourcesFormat(content, metadataPath)
     checks.push(...modelSourcesResults)
 
+    // 0.16. Model Existence Verification (verify models exist on Kaggle)
+    // This makes API calls so only run if format check passed
+    const formatPassed = !modelSourcesResults.some((r) => r.status === 'fail')
+    if (formatPassed && metadataPath) {
+      const modelExistenceResults = await verifyModelSourcesExist(metadataPath)
+      checks.push(...modelExistenceResults)
+    }
+
+    // 0.17. Auto Class with Local Path Check (HF repo ID validation issue)
+    const autoClassResults = checkAutoClassWithLocalPath(content)
+    checks.push(...autoClassResults)
+
+    // 0.17. Local Files Only Missing Check (model-specific classes need local_files_only=True)
+    const localFilesOnlyResults = checkLocalFilesOnlyMissing(content)
+    checks.push(...localFilesOnlyResults)
+
     // Detect if this is inference-only (no training)
     const isInferenceMode = detectInferenceMode(content)
 
-    // 1. GPU Memory Check
-    const gpuEstimate = estimateGpuMemory(config, isInferenceMode)
+    // Detect sequential loading pattern for multi-stage pipelines
+    const sequentialInfo = detectSequentialLoading(content)
+    const allModelPaths = extractAllModelPaths(content)
+
+    // 1. GPU Memory Check (with sequential loading awareness)
+    const gpuEstimate = estimateGpuMemory(config, isInferenceMode, sequentialInfo, allModelPaths)
     const gpuStatus =
       gpuEstimate.peak_gb <= platform.gpu.vram_gb * 0.9
         ? 'pass'
@@ -2049,6 +2628,9 @@ Use 'akk preflight platforms' to see available platforms.
             ...gpuEstimate.breakdown,
             mode: gpuEstimate.mode,
             model: gpuEstimate.model_detected,
+            ...(gpuEstimate.sequential_loading && {
+              sequential_loading: gpuEstimate.sequential_loading,
+            }),
           }
         : undefined,
     })

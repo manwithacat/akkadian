@@ -196,25 +196,13 @@ function parseArgs(argv: string[]): {
       if (!subcommand && !arg.startsWith('-')) {
         // Check if this could be a subcommand
         const potentialCmd = `${command} ${arg}`
-        if (
-          commands[potentialCmd] ||
-          [
-            'kaggle',
-            'colab',
-            'local',
-            'mlflow',
-            'model',
-            'workflow',
-            'vertex',
-            'preflight',
-            'competition',
-            'template',
-            'mcp',
-            'data',
-            'notebook',
-            'optimize',
-          ].includes(command)
-        ) {
+        // Auto-derive subcommand groups from command registry keys
+        const subcommandGroups = new Set(
+          Object.keys(commands)
+            .filter((k) => k.includes(' '))
+            .map((k) => k.split(' ')[0])
+        )
+        if (commands[potentialCmd] || subcommandGroups.has(command)) {
           subcommand = arg
           i++
           continue

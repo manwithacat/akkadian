@@ -3,6 +3,7 @@
  */
 
 import { type CommandResult, cli } from './process'
+import { toSlug } from './utils'
 
 export interface KernelMetadata {
   id: string
@@ -15,6 +16,7 @@ export interface KernelMetadata {
   enable_internet: boolean
   competition_sources?: string[]
   dataset_sources?: string[]
+  kernel_sources?: string[]
   model_sources?: string[]
 }
 
@@ -89,6 +91,32 @@ Use **Kaggle Models** (not Datasets) for ML model weights:
 - License tracking
 - Provenance chain (base model references)
 `
+
+/**
+ * Sanitize a string for use as a CLI argument to kaggle
+ *
+ * The kaggle CLI has issues with certain special characters in arguments
+ * like notes and titles. This function removes/escapes problematic chars.
+ */
+export function sanitizeCliString(input: string): string {
+  // Replace smart quotes with regular quotes
+  let sanitized = input
+    .replace(/[\u2018\u2019]/g, "'") // Smart single quotes
+    .replace(/[\u201C\u201D]/g, '"') // Smart double quotes
+    .replace(/[\u2013\u2014]/g, '-') // En/em dashes
+
+  // Remove or escape problematic characters that can break shell parsing
+  // even when passed as array args (some CLIs re-parse internally)
+  sanitized = sanitized
+    .replace(/`/g, "'") // Backticks -> single quotes
+    .replace(/\$/g, '') // Dollar signs (variable expansion)
+    .replace(/\\/g, '') // Backslashes
+
+  // Collapse multiple spaces and trim
+  sanitized = sanitized.replace(/\s+/g, ' ').trim()
+
+  return sanitized
+}
 
 /**
  * Run kaggle CLI command (using shared process utility)
@@ -234,7 +262,10 @@ export async function createModelInstance(
 ): Promise<{ success: boolean; message: string }> {
   const args = ['models', 'instances', 'create', '-p', folder]
   if (notes) {
-    args.push('-n', notes)
+    // Sanitize notes: escape quotes and remove problematic characters
+    // The kaggle CLI has issues with certain special characters
+    const sanitizedNotes = sanitizeCliString(notes)
+    args.push('-n', sanitizedNotes)
   }
 
   const { stdout, stderr, exitCode } = await runKaggle(args)
@@ -257,7 +288,9 @@ export async function createModelVersion(
 ): Promise<{ success: boolean; message: string }> {
   const args = ['models', 'instances', 'versions', 'create', instancePath, '-p', folder]
   if (notes) {
-    args.push('-n', notes)
+    // Sanitize notes to avoid CLI parsing issues
+    const sanitizedNotes = sanitizeCliString(notes)
+    args.push('-n', sanitizedNotes)
   }
 
   const { stdout, stderr, exitCode } = await runKaggle(args)
@@ -300,10 +333,16 @@ export async function listModels(user: string): Promise<{ success: boolean; mess
 }
 
 /**
- * Get model instance files
+ * Get model instance version files
+ *
+ * Note: Uses `kaggle models instances versions files` instead of
+ * `kaggle models instances files` because the latter has a bug in
+ * the Kaggle API (converts "pytorch" to "py_torch" in the URL path).
+ *
+ * @param versionPath Full 5-part path: owner/model/framework/instance/version
  */
-export async function getModelInstanceFiles(instancePath: string): Promise<{ success: boolean; message: string }> {
-  const { stdout, stderr, exitCode } = await runKaggle(['models', 'instances', 'files', instancePath])
+export async function getModelInstanceFiles(versionPath: string): Promise<{ success: boolean; message: string }> {
+  const { stdout, stderr, exitCode } = await runKaggle(['models', 'instances', 'versions', 'files', versionPath])
 
   if (exitCode !== 0) {
     return { success: false, message: stderr || stdout }
@@ -315,6 +354,44 @@ export async function getModelInstanceFiles(instancePath: string): Promise<{ suc
 /**
  * Convert Python script to Jupyter notebook using jupytext
  */
+const ATTRIBUTION_LINE = 'Built with Akkadian CLI - https://github.com/manwithacat/akkadian'
+
+/**
+ * Inject "Built with Akkadian CLI" attribution into Python source.
+ * If a module docstring exists, appends the line before the closing quotes.
+ * Otherwise prepends a comment at the top (after any shebang/encoding lines).
+ * Returns the (possibly modified) source text. Idempotent — skips if already present.
+ */
+export function injectAttribution(source: string): string {
+  if (source.includes(ATTRIBUTION_LINE)) {
+    return source
+  }
+
+  // Try to find module-level docstring (triple-quoted string at start of file)
+  // Account for optional comments/blank lines before docstring
+  const docstringPattern = /^((?:#[^\n]*\n|[ \t]*\n)*)("""([\s\S]*?)"""|'''([\s\S]*?)''')/
+  const match = docstringPattern.exec(source)
+
+  if (match) {
+    const prefix = match[1] // leading comments/blanks
+    const fullDocstring = match[2] // entire """..."""
+    const quote = fullDocstring.startsWith('"""') ? '"""' : "'''"
+    const body = match[3] ?? match[4]
+
+    // Append attribution before closing quotes
+    const newBody = body.trimEnd() + '\n\n' + ATTRIBUTION_LINE + '\n'
+    const newDocstring = quote + newBody + quote
+    return prefix + newDocstring + source.slice(match[0].length)
+  }
+
+  // No docstring — add as a comment after any shebang/encoding header
+  const headerPattern = /^((?:#![^\n]*\n)?(?:#[^\n]*coding[^\n]*\n)?)/
+  const headerMatch = headerPattern.exec(source)
+  const header = headerMatch?.[0] ?? ''
+  const rest = source.slice(header.length)
+  return header + `# ${ATTRIBUTION_LINE}\n` + rest
+}
+
 export async function convertToNotebook(
   pyPath: string,
   ipynbPath: string
@@ -339,9 +416,10 @@ export function createKernelMetadata(options: {
   enableInternet?: boolean
   competition?: string
   datasets?: string[]
+  kernels?: string[]
   models?: string[]
 }): KernelMetadata {
-  const slug = options.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const slug = toSlug(options.title)
 
   return {
     id: `${options.username}/${slug}`,
@@ -354,6 +432,7 @@ export function createKernelMetadata(options: {
     enable_internet: options.enableInternet ?? true,
     competition_sources: options.competition ? [options.competition] : undefined,
     dataset_sources: options.datasets,
+    kernel_sources: options.kernels,
     model_sources: options.models,
   }
 }

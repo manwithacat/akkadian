@@ -48,12 +48,6 @@ export {
   run as optimizeRun,
   study as optimizeStudy,
 } from './optimize'
-// Predict commands
-export {
-  list as predictList,
-  register as predictRegister,
-  update as predictUpdate,
-} from './predict'
 // Preflight commands
 export {
   platforms as preflightPlatforms,

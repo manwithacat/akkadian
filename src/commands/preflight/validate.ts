@@ -90,8 +90,39 @@ Returns a readiness score (0-100) and detailed breakdown.
         )
       }
     } else if (ext === '.py') {
-      // Convert Python script to notebook format for validation
+      // Check Python script for jupytext metadata with kernelspec
       const content = readFileSync(args.path, 'utf-8')
+      const jupytextCheck = validateJupytextMetadata(content)
+      if (jupytextCheck.errors.length > 0) {
+        // Return early with jupytext metadata errors
+        return success({
+          file: basename(args.path),
+          platform: platform ? PLATFORMS[platform].name : 'Any platform',
+          status: 'failed',
+          ready: false,
+          score: '0/100',
+          summary: {
+            errors: jupytextCheck.errors.length,
+            warnings: jupytextCheck.warnings.length,
+          },
+          categories: {
+            structure: 'FAIL',
+          },
+          errors: jupytextCheck.errors.map((e) => ({
+            code: e.code,
+            message: e.message,
+            suggestion: e.suggestion,
+          })),
+          warnings:
+            jupytextCheck.warnings.length > 0
+              ? jupytextCheck.warnings.map((w) => ({
+                  code: w.code,
+                  message: w.message,
+                }))
+              : undefined,
+        })
+      }
+      // Convert Python script to notebook format for validation
       notebook = scriptToNotebook(content)
     } else {
       return error('INVALID_FORMAT', `Unsupported file format: ${ext}`, 'Provide a .ipynb or .py file')
@@ -219,4 +250,59 @@ function scriptToNotebook(content: string): NotebookContent {
     },
     cells,
   }
+}
+
+/**
+ * Validate jupytext metadata in Python script.
+ * Checks for kernelspec which is required for Kaggle's papermill execution.
+ */
+function validateJupytextMetadata(content: string): {
+  errors: Array<{ code: string; message: string; suggestion: string }>
+  warnings: Array<{ code: string; message: string }>
+} {
+  const errors: Array<{ code: string; message: string; suggestion: string }> = []
+  const warnings: Array<{ code: string; message: string }> = []
+
+  // Check for jupytext YAML header
+  const hasJupytextHeader = /^# ---\s*\n# jupyter:/m.test(content)
+  const hasKernelspec = /kernelspec:\s*\n#\s+display_name:/m.test(content)
+  const hasCellMarkers = /^# %%/m.test(content)
+
+  if (!hasJupytextHeader) {
+    errors.push({
+      code: 'MISSING_JUPYTEXT_HEADER',
+      message: 'Python script missing jupytext YAML header',
+      suggestion: `Add jupytext header at the top of the file:
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---`,
+    })
+  } else if (!hasKernelspec) {
+    errors.push({
+      code: 'MISSING_KERNELSPEC',
+      message: 'Jupytext header missing kernelspec (required for Kaggle execution)',
+      suggestion: `Add kernelspec to the jupytext header:
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3`,
+    })
+  }
+
+  if (!hasCellMarkers) {
+    warnings.push({
+      code: 'MISSING_CELL_MARKERS',
+      message: 'No cell markers (# %%) found - notebook will be a single cell',
+    })
+  }
+
+  return { errors, warnings }
 }

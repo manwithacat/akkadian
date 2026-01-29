@@ -14,6 +14,7 @@ import { join } from 'path'
 import { z } from 'zod'
 import { findCompetitionConfig, loadCompetitionConfig } from '../../lib/config'
 import { error, success } from '../../lib/output'
+import { toSlug } from '../../lib/utils'
 import type { CommandDefinition } from '../../types/commands'
 
 /**
@@ -141,7 +142,6 @@ function generateInferenceNotebook(options: {
   const timestamp = new Date().toISOString()
 
   // Generate preprocessing code based on type
-  const _preprocessingCode = ''
   let preprocessingImports = ''
   let applyPreprocessing = '    prefixed_texts = [prefix + t for t in texts]'
 
@@ -457,7 +457,7 @@ function generateKernelMetadata(options: {
   competition: string
 }): Record<string, unknown> {
   const { owner, name, version, codeFile, modelHandle, competition } = options
-  const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-v${version.replace(/\./g, '-')}`
+  const slug = `${toSlug(name)}-v${version.replace(/\./g, '-')}`
 
   // Extract model source (owner/model-name only)
   const modelParts = modelHandle.split('/')

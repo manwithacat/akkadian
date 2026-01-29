@@ -6,7 +6,8 @@
  */
 
 import type { CompetitionConfig, KernelConfig, KernelVersionRecord, VersioningStrategy } from '../types/competition'
-import { findCompetitionConfig, loadCompetitionConfig, saveCompetitionConfig } from './config'
+import { findCompetitionConfig, getProjectRoot, loadCompetitionConfig, saveCompetitionConfig } from './config'
+import { toSlug } from './utils'
 
 /**
  * Options for generating a versioned kernel name
@@ -53,10 +54,7 @@ export function generateVersionedSlug(
   separator: string = '-'
 ): string {
   // Normalize base name to slug format
-  const baseSlug = baseName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+  const baseSlug = toSlug(baseName).replace(/^-|-$/g, '')
 
   switch (strategy) {
     case 'timestamp':
@@ -76,7 +74,7 @@ export function generateVersionedSlug(
  * Get kernel configuration by base name, creating if needed
  */
 export function getOrCreateKernelConfig(config: CompetitionConfig, baseName: string): KernelConfig {
-  const normalizedName = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const normalizedName = toSlug(baseName)
 
   if (config.kernels[normalizedName]) {
     return config.kernels[normalizedName]
@@ -124,7 +122,7 @@ export async function registerKernelVersion(
   const separator = config.competition.kaggle?.kernel_versioning?.prefix_separator || '-'
 
   // Get or create kernel config
-  const normalizedName = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const normalizedName = toSlug(baseName)
   const kernelConfig = getOrCreateKernelConfig(config, baseName)
 
   // Increment version
@@ -153,7 +151,7 @@ export async function registerKernelVersion(
   config.kernels[normalizedName] = kernelConfig
 
   // Persist
-  const projectRoot = configPath.replace('/competition.toml', '')
+  const projectRoot = getProjectRoot(configPath)
   await saveCompetitionConfig(config, projectRoot)
 
   return {
@@ -183,7 +181,7 @@ export async function getKernelHistory(baseName: string, projectDir?: string): P
     return []
   }
 
-  const normalizedName = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const normalizedName = toSlug(baseName)
   const kernelConfig = config.kernels[normalizedName]
 
   return kernelConfig?.versions || []
@@ -209,7 +207,7 @@ export async function updateKernelVersionStatus(
     throw new Error('Failed to load competition.toml')
   }
 
-  const normalizedName = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const normalizedName = toSlug(baseName)
   const kernelConfig = config.kernels[normalizedName]
 
   if (!kernelConfig) {
@@ -229,7 +227,7 @@ export async function updateKernelVersionStatus(
   kernelConfig.last_status = status
 
   // Persist
-  const projectRoot = configPath.replace('/competition.toml', '')
+  const projectRoot = getProjectRoot(configPath)
   await saveCompetitionConfig(config, projectRoot)
 }
 

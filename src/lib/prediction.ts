@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import type { ModelSource, PredictionJobRecord, PredictionStatus } from '../types/competition'
-import { loadCompetitionConfig, saveCompetitionConfig } from './config'
+import { getProjectRoot, loadCompetitionConfig, saveCompetitionConfig } from './config'
 
 /**
  * Options for creating a new prediction job
@@ -89,7 +89,7 @@ export async function registerPredictionJob(job: PredictionJobRecord, configPath
   config.predictions.total = Object.keys(config.predictions.jobs).length
 
   // Save back to competition.toml
-  const configDir = configPath.replace('/competition.toml', '')
+  const configDir = getProjectRoot(configPath)
   await saveCompetitionConfig(config, configDir)
 }
 
@@ -126,7 +126,7 @@ export async function updatePredictionJobStatus(
   }
 
   // Save back
-  const configDir = configPath.replace('/competition.toml', '')
+  const configDir = getProjectRoot(configPath)
   await saveCompetitionConfig(config, configDir)
 }
 
@@ -193,7 +193,7 @@ export async function deletePredictionJob(predictionId: string, configPath: stri
   delete config.predictions.jobs[predictionId]
   config.predictions.total = Object.keys(config.predictions.jobs).length
 
-  const configDir = configPath.replace('/competition.toml', '')
+  const configDir = getProjectRoot(configPath)
   await saveCompetitionConfig(config, configDir)
 }
 
