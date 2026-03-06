@@ -1,5 +1,0 @@
-export * from './commands'
-export * from './competition'
-export * from './output'
-export * from './platform'
-export * from './template'
