@@ -1,6 +1,7 @@
 import pytest
-from akkadian_mcp.state import ServerState
+
 from akkadian_mcp.handlers.knowledge import handle_knowledge
+from akkadian_mcp.state import ServerState
 
 
 @pytest.fixture

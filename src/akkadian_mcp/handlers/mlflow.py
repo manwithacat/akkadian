@@ -170,7 +170,12 @@ def _best(arguments: dict) -> str:
         f"  Run ID: {best.info.run_id}",
         f"  {metric}: {best.data.metrics.get(metric, 'N/A')}",
         f"  Params: {json.dumps(best.data.params, indent=2)}",
-        f"  All metrics: {json.dumps({k: round(v, 4) for k, v in best.data.metrics.items()}, indent=2)}",
+        "  All metrics: {}".format(
+            json.dumps(
+                {k: round(v, 4) for k, v in best.data.metrics.items()},
+                indent=2,
+            )
+        ),
     ]
     return "\n".join(lines)
 

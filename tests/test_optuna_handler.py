@@ -2,8 +2,8 @@ import pytest
 
 optuna = pytest.importorskip("optuna")
 
-from akkadian_mcp.state import ServerState
-from akkadian_mcp.handlers.optuna import handle_optuna
+from akkadian_mcp.handlers.optuna import handle_optuna  # noqa: E402
+from akkadian_mcp.state import ServerState  # noqa: E402
 
 
 @pytest.fixture

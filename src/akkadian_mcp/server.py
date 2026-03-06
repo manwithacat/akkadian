@@ -11,7 +11,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from . import __version__
-from .state import ServerState, get_state, has_extra
+from .state import get_state, has_extra
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,9 @@ def _bootstrap_tool() -> Tool:
 def _kaggle_tool() -> Tool:
     return Tool(
         name="kaggle",
-        description="Kaggle operations: status, list_kernels, submissions, push_kernel, download_output",
+        description=(
+            "Kaggle operations: status, list_kernels, submissions, push_kernel, download_output"
+        ),
         inputSchema={
             "type": "object",
             "properties": {

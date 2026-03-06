@@ -1,7 +1,9 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from akkadian_mcp.state import ServerState
+
 from akkadian_mcp.handlers.kaggle import handle_kaggle
+from akkadian_mcp.state import ServerState
 
 
 @pytest.fixture
@@ -37,7 +39,7 @@ def test_submissions_uses_config_competition(mock_subprocess, initialized):
     mock_subprocess.run.return_value = MagicMock(
         stdout="score,date\n0.95,2026-01-01", stderr="", returncode=0
     )
-    result = handle_kaggle({"operation": "submissions"})
+    handle_kaggle({"operation": "submissions"})
     call_args = mock_subprocess.run.call_args[0][0]
     assert "titanic" in " ".join(call_args)
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import subprocess
 from time import time
 
-from ..knowledge_graph.models import Entity
 from ..state import get_state
 
 

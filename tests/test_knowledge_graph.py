@@ -1,4 +1,5 @@
 import pytest
+
 from akkadian_mcp.knowledge_graph.models import Entity, Relation
 from akkadian_mcp.knowledge_graph.store import KnowledgeGraph
 

@@ -1,7 +1,9 @@
 import json
+
 import pytest
-from akkadian_mcp.state import ServerState
+
 from akkadian_mcp.handlers.bootstrap import handle_bootstrap
+from akkadian_mcp.state import ServerState
 
 
 @pytest.fixture

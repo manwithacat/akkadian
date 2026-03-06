@@ -2,8 +2,8 @@ import pytest
 
 mlflow = pytest.importorskip("mlflow")
 
-from akkadian_mcp.state import ServerState
-from akkadian_mcp.handlers.mlflow import handle_mlflow
+from akkadian_mcp.handlers.mlflow import handle_mlflow  # noqa: E402
+from akkadian_mcp.state import ServerState  # noqa: E402
 
 
 @pytest.fixture
