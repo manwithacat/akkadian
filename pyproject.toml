@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "akkadian"
+version = "0.2.0"
+description = "MCP server for ML competition workflows — Kaggle, MLflow, Optuna"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "manwithacat" }]
+keywords = ["mcp", "kaggle", "mlflow", "optuna", "machine-learning", "competition"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+mlflow = ["mlflow>=2.10.0"]
+optuna = ["optuna>=3.5.0"]
+all = ["akkadian[mlflow,optuna]"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+akkadian-mcp = "akkadian_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akkadian_mcp"]
